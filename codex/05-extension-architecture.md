@@ -1,145 +1,94 @@
-# Codex 05｜为什么类型化扩展点与执行准入比一个万能 Hook 更有价值？
+# Codex 05｜扩展架构：职责划分与关闭流程
 
-[总目录](../README.md) · [设计索引](../DESIGN_INDEX.md) · [研究方法与证据](../RESEARCH_METHOD.md)
+[总目录](../README.md) · [先读导览](../START_HERE.md) · [项目架构](00-architecture.md) · [问题索引](../DESIGN_INDEX.md)
 
-**设计研究版 v3｜研究日期：2026-10-12｜固定源码：`openai/codex@a9b0815167c27ab13719dd12d13b63e02b70d221`。** 下面先论证需求、反例、候选方案与代价，再展开真实源码。作者明示理由、文档契约和研究推导分别标注；上游运行实验仍为待运行。
+代码中 `// 笔记：` 为新增中文注释，其余保留上游原文。
 
-## 1. 问题不是“插件够不够多”
+假设你想给 Codex 加一段项目背景，再记录每次工具执行的耗时。都塞进主循环当然能用，但下次接入另一种界面时，可能又得修改同一段核心代码。
 
-假设宿主要接入审计、上下文注入、工具策略和容量控制。最简单的方案是在 Loop 里增加四个 if；另一个方案是提供 `onEvent(name, payload)`，任何插件都能修改任何状态。前者初期清楚但逐渐耦合，后者看似灵活却把约束隐藏在字符串和执行顺序里。
+**这一版的办法是：宿主安装功能，核心在约定的位置调用它们。** `codex-core` 负责会话与执行，app-server 负责装配；两者之间的 ExtensionRegistry 是一张按职责分组的名单。
 
-当前代码使用 ExtensionRegistryBuilder 收集类型化 contributor，build 后交付 registry；职责包含 input、context、tool、model request、lifecycle、admission 等。[F1] 这里研究的是宿主内核装配，不把它与用户脚本插件、Skills 或 MCP 混为一个系统。
+<!-- decision: C05-D1 | 不同功能为什么不共用一个万能回调？ -->
+## 扩展接口的职责划分
 
-## 2. 决策 C05-D1：为什么在编译期划分贡献能力？
+在 app-server 的 `thread_extensions()` 中，队列、记忆、MCP、Skills 等模块依次安装，最后调用 `build()`。各模块可以登记一种或多种能力；核心随后按执行阶段取出对应名单。
 
-**源码事实：** registry 按 trait 存储 contributor，build 消费 builder，暴露不同职责的 getter；to_builder 复制 Arc，用于宿主进一步添加贡献。[F1]
+看注册接口就能发现：补充上下文、提供 MCP 服务、处理输入，是不同入口。
 
-**设计推导：** 接口是对修改权的约束。上下文贡献方可以参与请求内容，却不需要接触进程管理；工具生命周期观察方不应偷偷接管输入队列。接口越明确，调用者越容易知道失败传播、是否影响控制流、以及需要在哪些测试里覆盖。
-
-| 方案 | 强项 | 代价 |
-|---|---|---|
-| Loop 内直接调用业务组件 | 调用链直观、初期成本低 | 每种部署策略都修改核心 |
-| 万能事件/字典 Hook | 扩展快、接口少 | payload 隐式契约、误用权限、顺序耦合 |
-| 类型化 contributor | 编译期检查和职责可见 | trait/API 数量增长，跨版本维护更严格 |
-| 远程插件协议 | 故障与进程边界更清晰 | 序列化、版本协商、取消、延迟与认证成本 |
-
-这些是研究候选，不是声称 Codex 作者逐一否决过它们。类型安全也不等于业务安全：一个 contributor 内部仍可持有 Mutex、网络客户端或其他共享状态。不可变 registry 防止注册结构被随意改变，不证明每个 handler 纯函数、无竞争或无泄漏。
-
-**反例：** 如果两个 Session 共用同一 Arc contributor，而它把最近一次用户内容放在未按 Session 分区的字段里，registry 再不可变也不能阻止跨会话混淆。该风险需要实现审查，而不是由 `Arc` 名字解决。
-
-## 3. 决策 C05-D2：为什么容量准入要先于输入消费？
-
-`admit_turn_start()` 返回 permit；缺少 permit 时，在 Core 消费 pending input 前拒绝启动；没有配置 gate 的宿主走允许路径。顺序与默认行为在源码注释和分支中明确。[F1]
-
-**反事实：** 输入先出队，再发现没有模型/执行容量。系统此时必须选择丢弃、重新入队、保留半启动状态，或让已接纳工作无限等待。把准入前移，并不能消灭排队，但能避免无执行权的任务过早推进到难恢复的状态。
-
-为什么 permit 不只是 bool？源码类型返回一个拥有生命周期的对象，适合用所有权把资源预约与工作生命周期关联。**这是类型所允许的设计解释，不是某个未知 permit 实现已正确释放的证明。** 还需检查实际实现是否在 cancel、error、正常完成与初始化失败时释放。
-
-如果需要提供 durable“已接受”响应，可以先将输入持久化，再等待执行准入；不要把输入持久化与执行 permit 对立起来。准确顺序是可分别 ACK 的 admission 与 execution start，而不是所有系统都必须在排队前预约昂贵资源。
-
-## 4. 可扩展性产生了哪些新问题？
-
-接口越细，跨域需求越可能需要协调多个 contributor。必须规定调用顺序、是否可变换输入、错误是否阻止启动，以及生命周期是否允许阻塞。强类型不会自动防止一个审计 sink 在热路径等待远程服务。
-
-对于固定部署、没有外部宿主定制的系统，少量明确函数依赖可能比搭建注册体系更好。对于需要在研究实验、产品 CLI 和服务端复用同一 Loop 的系统，稳定的类型化边界更有价值；但这个适用判断不能替代性能测量。
-
-## 5. 验证方案与迁移结论
-
-**上游实验待运行：** gate 第一次不给 permit，第二次允许，检查输入身份和消费次数；在已经获得 permit、尚未发模型请求时取消，检查资源释放。给 contributor 注入阻塞/抛错，观察影响哪一层；同时跑两个合成 Session 检查状态是否错误共享。
-
-**反证标准：** 如果新增一个简单策略需要改十多个 trait，却并没有降低耦合或形成更清晰权限边界，就要重新评估接口粒度。类型化是工具，不是终点。
-
-面向 Agent Infra，值得带走的是“扩展点也有 authority、ordering 与 lifetime”；不是学会注册一个回调就等于会做插件平台。准入 gate 是容量控制的接缝，不是跨节点租约和租户配额的一揽子实现。
-
-[F1]: https://github.com/openai/codex/blob/a9b0815167c27ab13719dd12d13b63e02b70d221/codex-rs/ext/extension-api/src/registry.rs#L1-L230
-
-## 6. 核心源码与逐段核对
-
-以下保留上一版的全部核心源码块及所在导读段；源码、缩进与定位范围不改写。前文设计研究补足其适用前提和反例，特别不能将收益概括误当作运行保证。
-
-### 2. 核心源码 A：可变 builder 结束后交出 registry
-
-源码：[`registry.rs`，L135–L225](https://github.com/openai/codex/blob/a9b0815167c27ab13719dd12d13b63e02b70d221/codex-rs/ext/extension-api/src/registry.rs#L135-L225)。
-
-<!-- source: https://github.com/openai/codex/blob/a9b0815167c27ab13719dd12d13b63e02b70d221/codex-rs/ext/extension-api/src/registry.rs#L135-L225 -->
+<!-- annotated-source: https://github.com/openai/codex/blob/a9b0815167c27ab13719dd12d13b63e02b70d221/codex-rs/ext/extension-api/src/registry.rs#L112-L125 -->
 ```rust
-    /// Registers one tool-lifecycle contributor.
-    pub fn tool_lifecycle_contributor(&mut self, contributor: Arc<dyn ToolLifecycleContributor>) {
-        self.registry.tool_lifecycle_contributors.push(contributor);
+    // 笔记：三类能力进入各自名单；核心到对应阶段才调用，不能把它们当成同一个事件回调。
+    /// Registers one prompt contributor.
+    pub fn prompt_contributor(&mut self, contributor: Arc<dyn ContextContributor>) {
+        // 笔记：Arc 让宿主与注册表共享这一实现；trait 规定它必须提供上下文贡献能力。
+        self.registry.context_contributors.push(contributor);
     }
 
-    /// Registers one ordered turn-item contributor.
-    pub fn turn_item_contributor(&mut self, contributor: Arc<dyn TurnItemContributor>) {
-        self.registry.turn_item_contributors.push(contributor);
+    /// Registers one runtime MCP server contributor.
+    pub fn mcp_server_contributor(&mut self, contributor: Arc<dyn McpServerContributor<C>>) {
+        // 笔记：MCP 服务贡献与文字上下文贡献分开注册，即使二者来自同一产品模块。
+        self.registry.mcp_server_contributors.push(contributor);
     }
 
-    /// Finishes construction and returns the immutable registry.
-    pub fn build(self) -> ExtensionRegistry<C> {
-        self.registry
+    /// Registers one turn-input contributor.
+    pub fn turn_input_contributor(&mut self, contributor: Arc<dyn TurnInputContributor>) {
+        // 笔记：输入贡献者参与输入处理，其触发位置和上下文贡献者不同。
+        self.registry.turn_input_contributors.push(contributor);
     }
 ```
 
-#### 逐段讲解
+例如构造模型上下文时，Session 遍历 `context_contributors()`，调用 `contribute_thread_context()`，再按片段的插入位置放入上下文提示或开发者指令。它不需要知道这段文字来自哪项产品功能。
 
-注册方法要求 `&mut self`，构造期可以追加贡献者；`build(self)` 消耗 builder，交出完成的 registry。调用者不再通过同一个 builder 任意追加。这表达结构上的构造/使用阶段分离。
+这里的 **extension 指进程内的 Rust 装配接口**。MCP、Skills 可以经由这些接口接入，但它不等于 MCP 协议，也不是泛指用户安装的一切插件。接口上的类型负责告诉编译器“这里需要哪一种能力”，并没有把扩展代码隔离进沙箱。
 
-两类 contributor 使用不同 trait，而不是一个任意字符串事件加 `Any` payload。学习时先看每个 trait 的输入输出和返回值是否能影响流程，再看实现；不要只数接口数量。
+相比 `onEvent(name, payload)` 这种万能回调，职责更容易查找，参数错误也更早暴露；代价是接口更多，跨职责功能需要登记多处。只有两三个固定功能的小程序，直接调用几个函数往往更省事。
 
-**限制：** 不可变 registry 不保证 contributor 内部无可变状态。`Arc<dyn ...>` 共享对象，实际实现仍可能使用锁、缓存或原子变量。也不能仅凭 vector 顺序推断所有回调的执行方式，消费方决定是否串行、并行或短路。
+<!-- decision: C05-D2 | 服务准备退出时，为什么先关入口再取输入？ -->
+## 关闭时的输入准入与交接
 
-### 3. 核心源码 B：结构体划分不同的扩展职责
+另一个扩展入口叫 `TurnStartAdmission`。名字容易让人联想到容量配额，但当前 app-server 的实现主要服务于**平稳关闭**：不再接纳新工作，同时等已经接纳的提交完成。
 
-同一源码范围。
+其核心逻辑很短：拿同一把锁检查入口是否关闭；未关闭就增加正在提交的计数，交出一个 permit。
 
-<!-- source: https://github.com/openai/codex/blob/a9b0815167c27ab13719dd12d13b63e02b70d221/codex-rs/ext/extension-api/src/registry.rs#L135-L225 -->
+<!-- annotated-source: https://github.com/openai/codex/blob/a9b0815167c27ab13719dd12d13b63e02b70d221/codex-rs/app-server/src/turn_admission.rs#L52-L62 -->
 ```rust
-pub struct ExtensionRegistry<C: Sync> {
-    event_sink: Arc<dyn ExtensionEventSink>,
-    turn_start_admission: Option<Arc<dyn TurnStartAdmission>>,
-    thread_lifecycle_contributors: Vec<Arc<dyn ThreadLifecycleContributor<C>>>,
-    turn_lifecycle_contributors: Vec<Arc<dyn TurnLifecycleContributor>>,
-    config_contributors: Vec<Arc<dyn ConfigContributor<C>>>,
-    token_usage_contributors: Vec<Arc<dyn TokenUsageContributor>>,
-    skill_invocation_contributors: Vec<Arc<dyn SkillInvocationContributor>>,
-    context_contributors: Vec<Arc<dyn ContextContributor>>,
-    mcp_server_contributors: Vec<Arc<dyn McpServerContributor<C>>>,
-    turn_input_contributors: Vec<Arc<dyn TurnInputContributor>>,
-    tool_contributors: Vec<Arc<dyn ToolContributor>>,
-    tool_lifecycle_contributors: Vec<Arc<dyn ToolLifecycleContributor>>,
-    model_request_contributors: Vec<Arc<dyn ModelRequestContributor>>,
-    turn_item_contributors: Vec<Arc<dyn TurnItemContributor>>,
-    approval_review_contributors: Vec<Arc<dyn ApprovalReviewContributor>>,
-}
-```
-
-这里不是让每个扩展都拿到整个 Session 随意修改，而是分别提供 context、tool、model request、lifecycle 等接口。不同 trait 代表不同职责，但是否真正限制访问权限还需读接口定义和实现，不把类型名称当作安全沙箱。
-
-`turn_start_admission` 是可选的单一 gate，而多个 contributor 存成列表，说明能力组合不只有一种基数。设计扩展时应明确“允许多个实现叠加”还是“只有一个最终决定者”。
-
-**设计分析：** 将观察性扩展与接纳性扩展分开，能减少一个统计组件无意控制主执行的风险；实际错误是否隔离仍取决于消费路径。
-
-### 4. 核心源码 C：在消费输入前申请 permit
-
-同一源码范围。
-
-<!-- source: https://github.com/openai/codex/blob/a9b0815167c27ab13719dd12d13b63e02b70d221/codex-rs/ext/extension-api/src/registry.rs#L135-L225 -->
-```rust
-    /// Acquires the host's turn-start permit, or an empty permit for ungated hosts.
-    /// A missing permit rejects the start before Core consumes pending input.
-    pub fn admit_turn_start(&self) -> Option<Box<dyn Send>> {
-        match &self.turn_start_admission {
-            Some(admission) => admission.admit_turn_start(),
-            None => Some(Box::new(())),
+    fn try_admit(&self) -> Option<TurnPermit> {
+        // 笔记：检查关闭状态与增加计数共用一把锁，避免关闭流程漏掉同时进入的新提交。
+        let mut state = self
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        // 笔记：入口关闭后不发许可；调用方需拒绝本次提交或另行保留待处理输入。
+        if state.closed {
+            return None;
         }
-    }
+        // 笔记：先增加在途提交计数，再返回拥有生命周期的许可；许可释放时会减回计数。
+        state.active += 1;
+        self.active_tx.send_replace(state.active);
+        Some(TurnPermit(self.clone()))
 ```
 
-未安装 gate 返回空的允许 permit；安装后由宿主决定。`None` 的意义是拒绝准入，不是“没有插件所以禁止一切”。注释把拒绝点放在消费输入之前，避免拿走工作后才发现没有容量。
+Core 启动新一轮前先索取 permit；拿不到便返回 `ServerDraining`，不把输入推进为已启动的工作。permit 在提交作用域结束时释放，`Drop` 将计数减一；运行中的轮次另有计数。这样就堵住了“服务以为已经闲了，另一份输入却正准备启动”的缝隙。
 
-`Box<dyn Send>` 不告诉我们实际 permit 使用什么资源控制，也不证明它是分布式租约。完整研究要追踪谁持有、何时 drop、取消是否释放。不要把这个 seam 直接命名为“已经实现全局调度器”。
+这个门也有明确例外：向正在执行的一轮追加输入，以及部分父任务委派的工作，可以走不同路径，让已接纳工作有机会收尾。它不是“一关闭就拒绝所有活动”。
 
+如果只返回一个布尔值，关闭流程只能知道刚才允许过，却不知道提交何时结束。把许可做成有生命周期的对象，正是为了补上后半句。
 
+## 自测
 
-## 7. 记录与验证边界
+关闭信号到来时，某请求已拿到 permit、尚未创建运行中的轮次。此时能因为“运行轮数为零”就退出吗？
 
-源码一致性检查只核对代码与固定版本匹配；设计结构检查只核对章节、决策编号和生成完整性，不证明论证正确。自建机制测试只验证抽象反例；没有编译或运行上游 Agent、真实模型、性能评测或 OS 沙箱测试。完整上一版保存在 [Git 历史](https://github.com/solstice621/Agent-Learning-Notes/blob/69577b8d1dc34b052090b43206faa9fcd2c597b2/codex/05-extension-architecture.md)。源码归属与许可见 [第三方声明](../THIRD_PARTY_NOTICES.md)。
+<details>
+<summary>参考答案与证据</summary>
+
+不能。还要等正在提交的计数归零，否则会漏掉即将发布的新轮次。
+
+已重读[宿主装配](https://github.com/openai/codex/blob/a9b0815167c27ab13719dd12d13b63e02b70d221/codex-rs/app-server/src/extensions.rs#L50-L121)、[上下文消费](https://github.com/openai/codex/blob/a9b0815167c27ab13719dd12d13b63e02b70d221/codex-rs/core/src/session/mod.rs#L4405-L4437)、[启动与例外](https://github.com/openai/codex/blob/a9b0815167c27ab13719dd12d13b63e02b70d221/codex-rs/core/src/session/turn_input.rs#L392-L451)。上游[关闭测试](https://github.com/openai/codex/blob/a9b0815167c27ab13719dd12d13b63e02b70d221/codex-rs/app-server/src/turn_admission_tests.rs#L6-L28)检查拒绝新请求及 permit 释放计数；本轮只阅读，未运行。本文不把此门解释为已实现的模型容量控制。
+
+</details>
+
+---
+
+固定源码：`openai/codex@a9b0815167c27ab13719dd12d13b63e02b70d221`｜研究日期：2026-10-12。
+
+[源码重读记录](../research/reread/codex-05-08.md) · [研究方法与验证边界](../RESEARCH_METHOD.md) · [源码归属与许可](../THIRD_PARTY_NOTICES.md)

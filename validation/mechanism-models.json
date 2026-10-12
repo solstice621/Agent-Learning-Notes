@@ -1,5 +1,11 @@
 {
   "status": "PASS",
+  "generated_at_utc": "2026-10-12T13:00:02+00:00",
+  "notes_head": "61ff1eb821f68ad78ae1cd908dcc4364fd4fb006",
+  "input_sha256": {
+    "tests/test_design_mechanisms.py": "33f07f631ed103b746be24155328d9a714ebd3eb40b6f48b3f78e228d96e3f21",
+    "scripts/run_mechanism_models.py": "938338fe36cbe9afd1f73f27b7e0421824ec6b642d268e505d8cb639558e79db"
+  },
   "tests_run": 22,
   "failures": 0,
   "errors": 0,

@@ -14,16 +14,16 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
-      - name: Check out notes and pinned previous edition
+      - name: Check out notes and authoring sources
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
-          fetch-depth: 0
+          fetch-depth: 1
       - name: Test documentation tools and independent mechanism models
         run: python3 -m unittest discover -s tests -v
       - name: Check generated design edition without modifying files
         run: python3 scripts/build_design_edition.py --check --report /tmp/design-structure.json
-      - name: Verify navigation, pinned commits, and verbatim excerpts
+      - name: Verify navigation, pinned commits, and source underlying annotated excerpts
         run: python3 scripts/verify_notes.py --report /tmp/agent-notes-validation.json
       - name: Report mechanism models separately from upstream tests
         run: python3 scripts/run_mechanism_models.py --report /tmp/mechanism-models.json

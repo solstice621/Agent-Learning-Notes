@@ -1,67 +1,25 @@
-# Codex 01｜为什么要把输入接纳、Turn 与请求快照分开？
+# Codex 01｜执行循环：输入接纳与请求快照
 
-[总目录](../README.md) · [设计索引](../DESIGN_INDEX.md) · [研究方法与证据](../RESEARCH_METHOD.md)
+[总目录](../README.md) · [先读导览](../START_HERE.md) · [项目架构](00-architecture.md) · [问题索引](../DESIGN_INDEX.md)
 
-**设计研究版 v3｜研究日期：2026-10-12｜固定源码：`openai/codex@a9b0815167c27ab13719dd12d13b63e02b70d221`。** 下面先论证需求、反例、候选方案与代价，再展开真实源码。作者明示理由、文档契约和研究推导分别标注；上游运行实验仍为待运行。
+代码中 `// 笔记：` 为新增中文注释，其余保留上游原文。
 
-## 1. 从一个足够简单的方案开始
+你让 Codex 修改 A 文件。它已经开始查代码，你又补了一句：“先别改 A，改 B。”界面收到了消息，但刚才发给模型的请求不会随之改写，已经执行的工具也不会自动撤销。
 
-先设想一个只有 `messages` 数组的实现：新消息立即 append，模型返回工具调用后直接执行，再把结果 append。单用户、不允许执行中追加输入、配置永不改变时，这种循环完全可能够用。**本篇不是证明简单循环错误，而是研究哪些新增需求使它不再足够。**
+**Codex 把新要求先接住，再在准备后续模型请求时纳入；每次请求使用自己的一套模型和工具信息。**
 
-当前源码需要处理执行期间的输入、每次请求的模型/能力视图，以及向模型和工具传播的取消。`run_turn` 在规定边界处理 pending input，随后构造实际请求，向采样函数传入 `Arc<StepContext>` 与 child cancellation token。[F1] 这些是实现事实，不是已经查明的最初产品需求。
+先把三个名字对上：`Session` 管这个会话的历史和服务；`Turn` 是一轮持续处理用户任务的工作；一轮里可以多次问模型，每次请求对应一个 `StepContext`。正常路线是：接收输入 → 请求模型 → 执行工具 → 记录结果 → 再问模型。`codex-core` 承担这段业务逻辑，界面和 app-server 负责把请求送进来、把事件展示出去。
 
-## 2. 决策 C01-D1：输入到达为什么不立即改变当前推理？
+<!-- decision: C01-D1 | 新消息到了，为什么不立刻塞进正在执行的请求？ -->
+## 运行中输入的排队与消费
 
-**反事实场景（分析构造）：** 模型已收到“修改 A”，调用一个耗时工具；用户此时说“不要改 A，改 B”。修改本地 messages 数组无法改变已经发到模型端的请求，也不能回滚工具已经发生的效果。系统必须规定纠正意见属于当前 Step 的后续输入、下一 Turn，还是一次显式中断，而不是假装所有事情发生在同一瞬间。
+运行中的补充输入先确认有可接收的活动 Turn；指定了预期 Turn ID 时，还要核对 ID。这样可以拒绝发给过期轮次的定向纠正。通过检查后，消息才进入待处理队列。接收成功说明消息进了队列，尚不等于模型已经读到。
 
-源码把取 pending input 的时机交给 `can_drain_pending_input`；初始输入和压缩后尚未完成的模型/工具工作会影响何时消费队列。[F1] **推导：** 接纳边界的价值，是让“收到”“准许进入当前执行”“已形成模型请求”成为可区分的事实。它不意味着所有到达的输入都应该延迟，也不保证用户修改可以撤销过去。
+`run_turn` 在循环开头决定是否取出这些消息：
 
-| 候选方案（研究比较，并非作者全部实际考虑过） | 得到什么 | 必须承受什么 |
-|---|---|---|
-| 禁止运行中输入 | 控制流最简单 | 失去及时纠正能力，用户必须等待 |
-| 每次输入都立即 cancel 并重启 | 新意图较快接管 | 高频输入造成工作浪费；副作用和终态仍需结算 |
-| 新输入仅放下一 Turn | 边界清楚 | 长 Turn 中的纠正反馈较慢 |
-| 在规定 Step 边界接纳 | 允许不重启整任务的调整 | 需要队列、接纳顺序及取消竞争规则 |
-
-合理的选择取决于产品交互契约。不能因为 Codex 有队列，就把所有系统都做成可插队聊天；批量评测任务可以规定输入提交后不可修改。
-
-## 3. 决策 C01-D2：为什么按请求捕获 StepContext，而不是处处读取最新配置？
-
-源码注释直接说明：上下文、公布的工具和工具调用共享同一个请求视图；`for_prompt` 使用 StepContext 的模态信息，采样与工具阶段继续持有该视图。[F1][F2] 这属于**源码中明确写出的局部理由**，不需要替作者补历史故事。
-
-设请求在 t0 公布了工具定义 V1；t1 用户切换模型或插件；t2 模型按 V1 返回参数。若执行器按 V2 解析或处理，会发生“决策依据与执行语义不一致”。把所有状态在会话创建时永久冻结虽能避免这种错位，却让新设置直到重启才能生效。Step 快照是两者之间的边界：当前请求内部保持一致，后续请求可以看到变化。
-
-但**一致性不等于授权永不过期**。快照可以固定工具 schema、模型配置、结果解析方式；紧急撤销权限是否必须在执行点重新检查，是另一条政策。不能从 `Arc` 或“共享请求视图”推导出撤销永远无效，也不能声称源码已实现某种集群版本协议。
-
-最有价值的抽象是区分“描述性配置快照”和“准许产生副作用的实时权利”。平台设计中可分别记录 configuration version 与 policy generation，但这是迁移建议，不是本段已经实现的两个字段。
-
-## 4. 付出的成本与改变选择的条件
-
-快照使旧对象可能被慢工具持续持有；队列使用户看见“已提交”时工作尚未采样。维护者还要追踪 Session、Turn、Step 和 transport attempt 的不同生命周期。若只有不可变输入的短任务，这些抽象可能是多余的；若存在大量配置热变更，则快照释放时间、历史保留与撤权时机反而要成为明确指标。
-
-不能用一个 `finished` 判断所有层次：模型已输出答案、工具已停止、输入队列已清空、持久化已确认是不同命题。此处源码证明调用关系，不证明每一个下游动作都已完成稳定存储或 OS 资源回收。
-
-## 5. 如何验证，而不是只认同这个故事
-
-**上游实验待运行：** 用 mock provider 把请求冻结在 t0，改变工具定义后再返回旧版调用，比较请求声明、实际 handler 和下一 Step 的配置；另在慢工具执行中加入纠正输入，分别不取消、主动取消，记录接纳与结果顺序。验收要检查请求和副作用，不只看最终回答。
-
-**反证标准：** 若在配置不可变的任务上，分层后没有更清楚的故障恢复或交互需求，却显著增加维护面，应接受更简单方案。若权限撤销后旧工具仍不受约束地运行，则需要审计执行授权层，而不能把请求快照本身当作安全保证。
-
-**本篇应带走的判断：** 边界的作用不是让代码更“企业级”，而是为异步系统中不能同时发生的事实规定顺序。读下面的源码时，逐一寻找取队列、形成请求、持有快照和向下取消的真实位置。
-
-[F1]: https://github.com/openai/codex/blob/a9b0815167c27ab13719dd12d13b63e02b70d221/codex-rs/core/src/session/turn.rs#L420-L665
-[F2]: https://github.com/openai/codex/blob/a9b0815167c27ab13719dd12d13b63e02b70d221/codex-rs/core/src/tools/parallel.rs#L1-L275
-
-## 6. 核心源码与逐段核对
-
-以下保留上一版的全部核心源码块及所在导读段；源码、缩进与定位范围不改写。前文设计研究补足其适用前提和反例，特别不能将收益概括误当作运行保证。
-
-### 2. 核心源码 A：到达的输入并不立即进入请求
-
-源码位置：[`core/src/session/turn.rs`，L420–L560](https://github.com/openai/codex/blob/a9b0815167c27ab13719dd12d13b63e02b70d221/codex-rs/core/src/session/turn.rs#L420-L560)。
-
-<!-- source: https://github.com/openai/codex/blob/a9b0815167c27ab13719dd12d13b63e02b70d221/codex-rs/core/src/session/turn.rs#L420-L560 -->
+<!-- annotated-source: https://github.com/openai/codex/blob/a9b0815167c27ab13719dd12d13b63e02b70d221/codex-rs/core/src/session/turn.rs#L429-L436 -->
 ```rust
+        // 笔记：只有允许接纳新输入的采样边界才取队列；取出后还要记录历史，模型才会看到。
         let pending_input = if can_drain_pending_input {
             sess.input_queue
                 .get_pending_input(&sess.active_turn)
@@ -69,69 +27,57 @@
                 .0
         } else {
             Vec::new()
+        // 笔记：暂缓消费不等于丢弃消息；它仍留在队列中等待后续请求。
         };
-
-        if run_hooks_and_record_inputs(
-            &sess,
-            &turn_context,
-            &turn_context.capture_current_model_info(),
-            &pending_input,
-            PersistContext::SteeredUserInput,
-        )
-        .await
-        {
-            break;
-        }
 ```
 
-#### 逐段讲解
+取出的消息会经过输入 hooks、写入历史，随后才构造模型请求。第一次采样要先处理启动本轮的原始输入；压缩刚结束、还有模型或工具工作需要续接时，也可能暂缓读取队列。这些规则是在给新旧工作安排次序。[查看接纳与请求构造](https://github.com/openai/codex/blob/a9b0815167c27ab13719dd12d13b63e02b70d221/codex-rs/core/src/session/turn.rs#L418-L541)。
 
-`can_drain_pending_input` 是消费队列的条件，不是“是否有消息”。即使 UI 已经接到用户新输入，本次采样也可能暂不消费。源文件附近的注释给出两个延期场景：Turn 初始输入应先获得采样机会；自动压缩之后还有模型/工具后续工作要处理。
+这里也不是“永远等当前请求自然结束”。启用 `InstantInterrupt` 时，新输入能触发当前采样的抢占路径，再安排后续请求；具体会视传输能力发送中断信号、排空响应或停止读取，再处理已有结果。无论走哪条路，新消息都不能倒流进已经发出的请求。[查看抢占处理](https://github.com/openai/codex/blob/a9b0815167c27ab13719dd12d13b63e02b70d221/codex-rs/core/src/session/turn.rs#L2627-L2655)。
 
-`get_pending_input(&sess.active_turn)` 表示取输入时仍绑定当前活动 Turn。这里不应猜测返回元组其他字段的语义；节选只使用 `.0`。真正要沿代码跟踪的是输入从队列到历史的接纳点。
+<!-- decision: C01-D2 | 工具配置变了，为什么当前请求还保留旧版本？ -->
+## StepContext：工具路由快照与动态权限
 
-`run_hooks_and_record_inputs` 把输入钩子与记录工作放在下一请求前。返回条件为真时停止本次循环，因此不是任何收到的文本都一定进入下一次模型调用。**从此调用点能证明顺序，不能单靠函数名证明已经 fsync。**
+假设模型看到的工具参数是 `path`，等待回复期间插件更新，把它改成了 `file`。如果执行器直接查最新注册表，模型按旧说明发出的合法调用就可能失败。
 
-**思考反例：** 如果模型请求在接纳函数完成之前构造，用户已经提交的纠正意见可能不在模型输入中；如果重试时再次消费队列，则新输入可能在同一个逻辑步骤被提前提升。
+因此，准备请求时捕获的 `StepContext` 同时持有模型设置、环境和工具路由。工具执行器继续保留这一份对象：
 
-### 3. 核心源码 B：先生成模型视图，再传递执行快照
-
-同一文件、同一定位范围。
-
-<!-- source: https://github.com/openai/codex/blob/a9b0815167c27ab13719dd12d13b63e02b70d221/codex-rs/core/src/session/turn.rs#L420-L560 -->
+<!-- annotated-source: https://github.com/openai/codex/blob/a9b0815167c27ab13719dd12d13b63e02b70d221/codex-rs/core/src/tools/parallel.rs#L45-L52 -->
 ```rust
-            let sampling_request_input: Vec<ResponseItem> = async {
-                sess.clone_history()
-                    .await
-                    .for_prompt(&step_context.settings.model_info.input_modalities)
-            }
-            .instrument(trace_span!("run_turn.prepare_sampling_request_input"))
-            .await;
-
-            run_sampling_request(
-                Arc::clone(&sess),
-                Arc::clone(&step_context),
-                Arc::clone(&turn_context.extension_data),
-                Arc::clone(&turn_diff_tracker),
-                &mut client_session,
-                sampling_request_input,
-                cancellation_token.child_token(),
-            )
-            .await
+#[derive(Clone)]
+pub(crate) struct ToolCallRuntime {
+    // 笔记：共享 Session 让异步工具能回写会话；并不为每个工具复制一份会话。
+    session: Arc<Session>,
+    // Tool calls may run later, so retain the step whose tool list advertised them.
+    // 笔记：工具保留公布它时的 Step，防止等待期间工具目录更新后执行依据错位。
+    step_context: Arc<StepContext>,
+    tracker: SharedTurnDiffTracker,
+    // 笔记：该锁由这一工具运行时及其克隆共享，用来区分可重叠与独占调用。
+    parallel_execution: Arc<RwLock<()>>,
+}
 ```
 
-#### 逐段讲解
+这里的 `Arc` 可以理解为“共享持有这份对象”。请求公布的工具和后来执行的工具由同一份路由连接起来；下一次请求再捕获新设置。[查看捕获过程](https://github.com/openai/codex/blob/a9b0815167c27ab13719dd12d13b63e02b70d221/codex-rs/core/src/session/mod.rs#L3865-L3989)。
 
-`clone_history()` 取得运行时历史，再由 `for_prompt(...)` 依据输入模态形成模型视图。因此持久化记录、运行时历史、实际请求是三个需要分别检查的层次，不应直接拿聊天记录替代请求。
+但并非一切都被冻住。`StepContext.environments()` 仍会读取所属 Turn 的当前权限授予。模型看到的能力说明与执行时的许可各有职责，不能把“保留旧工具表”理解为“旧权限永久有效”。[查看权限读取](https://github.com/openai/codex/blob/a9b0815167c27ab13719dd12d13b63e02b70d221/codex-rs/core/src/session/step_context.rs#L62-L73)。
 
-这里的模态信息来自 `step_context.settings.model_info`；`run_sampling_request` 又收到同一个 `Arc<StepContext>`。源文件前面的捕获点明确要求上下文、声明给模型的工具和实际工具调用共享一次请求视图。**分析：** 这是一种请求级快照边界，用来避免声明时与执行时配置错位；不是跨机器配置一致性协议。
+这样做的代价是多了队列和对象生命周期：新要求可能需要等待，慢工具也会继续持有旧上下文。如果你的 Agent 只做短批处理、提交后输入和配置都不变，一个串行循环就能更容易地说明白。
 
-`&mut client_session` 使本 Turn 的传输状态可以在多次请求间更新；它与长期 Session 不是同一个对象。其内部路由状态详见 [04](04-llm-streaming.md)。
+## 自测
 
-`child_token()` 给下层传入取消通道，但看到取消 token 不等于所有子进程已停止；下层仍需落实取消、清理和结果结算。工具侧见 [03](03-tools-sandbox.md)。
+新插件刚安装好，正在返回的模型调用会自动切到它的新参数格式吗？
 
+<details>
+<summary>参考答案</summary>
 
+不会。当前调用来自此前公布的工具表，继续使用对应 Step 的路由；后续请求捕获新工具信息后，模型才有机会按新格式调用。补充输入也不是撤销旧工具效果的机制。
 
-## 7. 记录与验证边界
+</details>
 
-源码一致性检查只核对代码与固定版本匹配；设计结构检查只核对章节、决策编号和生成完整性，不证明论证正确。自建机制测试只验证抽象反例；没有编译或运行上游 Agent、真实模型、性能评测或 OS 沙箱测试。完整上一版保存在 [Git 历史](https://github.com/solstice621/Agent-Learning-Notes/blob/69577b8d1dc34b052090b43206faa9fcd2c597b2/codex/01-agent-loop.md)。源码归属与许可见 [第三方声明](../THIRD_PARTY_NOTICES.md)。
+证据与局限：以上来自固定版本的调用链；另读了[错误 Turn ID 的拒绝测试](https://github.com/openai/codex/blob/a9b0815167c27ab13719dd12d13b63e02b70d221/codex-rs/core/src/session/turn_input_tests.rs#L877-L917)。本轮没有运行上游测试，示例中的 A/B 文件只是帮助理解的场景。
+
+---
+
+固定源码：`openai/codex@a9b0815167c27ab13719dd12d13b63e02b70d221`｜研究日期：2026-10-12。
+
+[源码重读记录](../research/reread/codex-01-04.md) · [研究方法与验证边界](../RESEARCH_METHOD.md) · [源码归属与许可](../THIRD_PARTY_NOTICES.md)

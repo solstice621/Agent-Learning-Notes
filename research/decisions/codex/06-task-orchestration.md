@@ -1,52 +1,82 @@
-# Codex 06｜为什么子 Agent 要区分持久身份、运行驻留与当前父归属？
+# Codex 06｜子 Agent 编排：按需加载与归属校验
 
-## 1. 从“spawn 一个异步任务”到可继续的子会话
+你让一个子 Agent 查资料。它已经交回结果，过了一会儿，你又补充：“请把第二点展开。”这时它可能早已从内存卸载，却仍保留原来的身份和历史。
 
-一次短暂委派只需要启动 future、等待结果、销毁局部变量。若子任务还必须可查找、可卸载、可恢复、可继续对话，并且受父任务权限约束，future 就不再是足够的数据模型。
+**任务存在、程序对象已加载、当前正在工作，是三件事。** 这一版的多 Agent V2 将它们分开管理：持久记录保存身份和历史，ThreadManager 管理已加载对象，每个 Session 再管理当前一轮。
 
-已读实现把恢复 Agent 元数据与加载 runtime 分开；ensure_v2_agent_loaded 在继续时校验父对象、运行状态、registry 归属，返回需要由调用方保持的 residency pin。[F1] 这些事实支持下面两项设计研究，但不证明此系统已经是多机器调度平台。
+<!-- decision: C06-D1 | 为什么保留子任务，却不让它一直占着内存？ -->
+## 子任务的按需加载与消息递送
 
-## 2. 决策 C06-D1：为什么“知道任务存在”不必“让它一直驻留”？
+任务树的根会话恢复时，`restore_v2_agent_metadata()` 先查持久的父子关系，只登记子任务身份，不逐个重建执行对象。这样，“列出有哪些子任务”无需把它们全部启动。
 
-存储身份回答“它是谁、属于谁、历史在哪里”；resident runtime 回答“执行所需对象现在是否加载”；active Turn 回答“它现在是否工作”。三者生命周期不一样。
+真正追加工作时，`send()` 才按需加载。下面这段里，最值得注意的是 `_residency_pin` 活得比 `send_input()` 更久：
 
-| 方案 | 合理场景 | 主要成本 |
-|---|---|---|
-| 子任务是一次性 future | 不需要继续、只有一份结果 | 结果后无法继续原会话 |
-| 所有子会话永远加载 | 子任务少、低延迟优先 | 长期对象与连接累积 |
-| 只保存最终结果 | 大批独立评测 | 无法恢复中间对话 |
-| 身份持久、runtime 按需加载 | 多个可继续任务 | 冷启动、驱逐竞争、状态恢复更复杂 |
+<!-- annotated-source: https://github.com/openai/codex/blob/a9b0815167c27ab13719dd12d13b63e02b70d221/codex-rs/core/src/agent/control/api.rs#L112-L120 -->
+```rust
+                    // 笔记：已登记身份不代表执行对象仍在内存；先根据元数据判断是否需要按需恢复。
+                    let receiver = self.get_agent_metadata(target);
+                    // 笔记：这个局部变量虽然以下划线开头，仍持有防卸载读锁，直到当前作用域结束。
+                    let _residency_pin = if receiver.is_some() {
+                        self.ensure_v2_agent_loaded(resume_config, target, /*parent*/ None)
+                            // 笔记：加载过程可能等待存储或资源；成功之后再提交输入。
+                            .await?
+                    } else {
+                        None
+                    };
+                    // 笔记：发送期间仍保留 pin，堵住加载成功后立刻被其他任务卸载的窗口。
+                    let submission_id = self.send_input(target, input, start_options).await?;
+                    (receiver.unwrap_or_default(), submission_id)
+```
 
-**推导：** 按需驻留的收益取决于闲置会话比例和加载成本。不能看到“metadata-only restore”就宣称内存减少某个百分比；如果子任务始终繁忙，反复驱逐可能得不偿失。
+这个 pin 是一把读锁，可理解为“这次提交还在使用对象，请暂时别卸载”。卸载方必须取得同一个对象上的写锁；拿不到就报告忙。否则可能出现：刚检查加载成功，另一个操作把它卸掉，消息还没来得及送进去。
 
-residency pin 的关键是维护加载后到提交输入之间的有效期。如果 load 成功便立刻释放保护，另一个动作可能在真正提交前驱逐它，形成检查时可用、使用时失效的窗口。源码注释要求调用者保留 pin 到输入提交。[F1] 这是一个跨函数的生命周期契约，不应只研究加载函数的返回值。
+容量不足时，管理器会尝试卸载可卸载的闲置对象；卸载前保存记录，停止执行，再从已加载表中移除。身份和历史仍在，所以之后可以重建。这换来了较少的常驻对象，也增加了重新读取历史、恢复配置的成本。
 
-## 3. 决策 C06-D2：为什么 parentID 相同还不够？
+若子任务只运行一次、交回结果后永不继续，一个普通异步任务加结果存储已经够用。这里多出的复杂度，是为“保留同一个可继续的子会话”付费。
 
-代码使用 `Arc::ptr_eq` 检查 registry 里当前父对象就是传入的对象，还检查父是否运行、是否 V2、是否同一个 registry。[F1]
+<!-- decision: C06-D2 | 为什么父任务编号相同，还要重新检查归属？ -->
+## 父子关系与实例归属校验
 
-**反事实：** 父会话 ID=P 的旧对象停止，随后同 ID 的新对象恢复。旧异步回调晚到，仍拿着 P。如果只比较字符串，它可能误把旧生命周期的授权用于新父。对象身份检查能拒绝这一类本进程中的过期关系。它类似 generation 校验的用途，但对象地址不是跨机器 fencing token，也不能跨重启保存。
+设父任务 P 的旧对象已经停止，同编号的新对象随后恢复。一个迟到的操作还拿着旧 P，只比较编号就可能误认它仍代表当前父任务。
 
-恢复还要处理当前环境和权限条件。历史上曾经允许的动作，不应仅因为日志里存在就天然拥有当前权限。**推导原则：** 恢复历史是数据行为，恢复执行权是授权行为；二者应分别检查。具体所有平台和远程模式的权限收紧规则仍需逐分支审计，本文不声称已经覆盖。
+通过父任务恢复子任务时，代码不仅检查编号，还比较“传入的父对象”和管理器中当前对象是否真是同一个：
 
-### 上下文继承是另一条权利边界
+<!-- annotated-source: https://github.com/openai/codex/blob/a9b0815167c27ab13719dd12d13b63e02b70d221/codex-rs/core/src/agent/control/spawn.rs#L326-L338 -->
+```rust
+        // 笔记：这一组检查只适用于传入父对象的恢复路径，parent 为空会跳过该分支。
+        if let Some(parent) = &parent {
+            let parent_thread_id = parent.session.thread_id;
+            let registered_parent = state.get_thread(parent_thread_id).await.ok();
+            if !registered_parent
+                // 笔记：编号相同还不够；指针相等证明它就是管理器当前登记的那一个父实例。
+                .as_ref()
+                .is_some_and(|registered| Arc::ptr_eq(registered, parent))
+                || !parent.is_running()
+                // 笔记：父任务还必须处于运行态，并使用本分支要求的多 Agent V2。
+                || parent.multi_agent_version() != Some(MultiAgentVersion::V2)
+                || !Arc::ptr_eq(
+                    // 笔记：再确认双方属于同一个任务注册表，防止把子任务接到另一棵运行时任务树。
+                    &self.runtime.registry,
+                    &parent.session.services.local_agent_runtime.registry,
+                )
+            {
+```
 
-spawn.rs 的过滤逻辑会按模式筛选父历史，并排除某些角色/运行时信息及父累计 token。[F1] 复制父任务的目标和发现，有助于子任务理解；复制父的临时角色、许可描述或累计用量，则可能制造错误身份与重复计费归因。
+后面还会核对历史、元数据中的父编号是否一致，并重新采用当前父任务的环境和执行策略。某些本地权限变化会取双方允许范围的交集；缓存远程环境的权限变化则会拒绝这条恢复路径。
 
-但是，过度过滤也可能丢失关键约束，使子 Agent 再做一遍父任务。应该用任务所需信息完整度与不应继承的能力/计数共同评估，而不是默认“继承越少越安全”或“越多越聪明”。
+这里需要保留一个细节：`ensure_v2_agent_loaded()` 的 `parent` 参数可为空。普通发送者触发加载与“通过父对象恢复”是不同路径，上面的完整父对象检查只发生在提供父对象时。不能把一个分支的规则概括成所有发送都如此。
 
-## 4. 成本、替代方案与不能外推的能力
+对象比较解决的是当前进程中旧对象冒用新生命周期的问题；它不是跨机器通用的身份凭证。真正要做远程调度，还得另行定义 Worker 身份和失效规则。
 
-持久 Agent 图、resident registry、active task 三层增加一致性维护。父结束时是否取消子任务、子结果如何通知、后台任务是否可脱离父继续，都要成为明确产品政策，而不是从 parentID 自动推导。
+## 自测
 
-如果工作是大量独立、不可继续的 rollout，一个普通 Job ID + immutable input + result store 可能更合适；把所有 rollout 做成完整聊天 Session 会增加不必要状态。反过来，长交互式委派需要继续同一子会话时，简单 map of futures 会越来越脆弱。
+查看一个子任务显示 `Unloaded`，能否据此认定任务已删除？刚加载成功，能否立刻释放 pin 再去发送消息？
 
-## 5. 验证与读后判断
+<details>
+<summary>参考答案与证据</summary>
 
-**上游实验待运行：** 创建子任务后卸载 runtime，核对身份仍存在；在 reload 与 submit 之间插入驱逐请求，检查 pin 的作用；让旧父回调在同 ID 新父启动后到达，验证不会获得控制；恢复前收紧测试权限，检查错误分类。
+都不能。前者只说明执行对象未驻留；后者会重新打开“检查成功到实际使用之间”的卸载窗口。
 
-**量化指标：** 常驻对象数、冷加载延迟、重新获取模型/环境的成本、失败恢复率，以及输入在加载竞争中是否重复或丢失。避免只测 spawn 平均延迟。
+已重读[元数据恢复](https://github.com/openai/codex/blob/a9b0815167c27ab13719dd12d13b63e02b70d221/codex-rs/core/src/agent/control/spawn.rs#L190-L274)、[卸载与锁](https://github.com/openai/codex/blob/a9b0815167c27ab13719dd12d13b63e02b70d221/codex-rs/core/src/agent/control/residency.rs#L34-L101)、[环境重校验](https://github.com/openai/codex/blob/a9b0815167c27ab13719dd12d13b63e02b70d221/codex-rs/core/src/agent/control/spawn.rs#L473-L561)。上游[恢复测试](https://github.com/openai/codex/blob/a9b0815167c27ab13719dd12d13b63e02b70d221/codex-rs/core/src/agent/control_tests.rs#L1276-L1443)检查未加载状态、历史恢复和消息提交；本轮只阅读，未运行或测量内存收益。
 
-读完应能分别回答：一个子任务是否存在、是否加载、是否运行、谁现在有权继续它。能分清这四个问题，才有基础讨论把 Agent 执行扩展到远程 Worker。
-
-[F1]: https://github.com/openai/codex/blob/a9b0815167c27ab13719dd12d13b63e02b70d221/codex-rs/core/src/agent/control/spawn.rs#L1-L540
+</details>

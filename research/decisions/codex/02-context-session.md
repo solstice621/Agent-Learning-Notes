@@ -1,50 +1,81 @@
-# Codex 02｜为什么上下文压缩需要重建历史，而不只是生成摘要？
+# Codex 02｜上下文管理：历史压缩与状态恢复
 
-## 1. 真正的问题：减少输入与保留行动依据之间的冲突
+Codex 已经改了几处代码、看了大段日志，任务还没完成，模型能接收的上下文却快装满了。如果只留下“之前做了一些修改，请继续”，下一步就可能忘记用户限制，或者不知道现在在哪个目录工作。
 
-假设 Agent 已完成一次修改、发现一个失败测试、获得一个权限许可，并且还有一个未完成目标。最简单的压缩是保留最后 K 条消息；另一种是让模型把全部内容总结成一段话。这两种方法都有合理应用，但它们压缩的对象与系统必须继续执行的状态不一定相同。
+**压缩后的输入由摘要、保留的用户消息和重新生成的环境信息一起组成；程序还要保存这份新历史，供以后恢复。**
 
-源码中压缩结果不仅有文本，还有窗口与响应等元数据；replacement history 结合压缩后历史、初始上下文和 world state，最终构造新的活动历史。[F1] 本篇把这些事实解释为一个**带身份和恢复约束的状态变换**。这是分析框架，不把“摘要保证保真”当成作者承诺。
+压缩在核心执行循环里衔接前后两次模型请求。`run_auto_compact` 会按功能和 provider 能力选择不同路径。本篇沿 `compact.rs` 的本地摘要路径往下看；这里的“本地”是由客户端组织摘要流程，摘要本身仍要请求模型。[查看路径选择](https://github.com/openai/codex/blob/a9b0815167c27ab13719dd12d13b63e02b70d221/codex-rs/core/src/session/turn.rs#L1435-L1508)。
 
-## 2. 决策 C02-D1：为什么不把所有东西都交给摘要模型？
+<!-- decision: C02-D1 | 为什么拿到摘要以后，还要重新拼装上下文？ -->
+## 压缩后上下文的重建
 
-摘要模型适合提炼语义，却不应该成为唯一的身份、工具协议或授权记录维护者。一个说明“已经运行测试”的摘要，不等于带退出码的测试结果；“用户批准了操作”的自然语言，也不应自动成为当前执行许可。
+先把已有历史交给模型，请它总结。结果回来后，代码从最近的用户消息向前挑选，在 token 限额内保留文字，再加上摘要。超出预算的消息可能被裁剪，所以“保留用户消息”也不是无损保存全部对话。[查看消息筛选](https://github.com/openai/codex/blob/a9b0815167c27ab13719dd12d13b63e02b70d221/codex-rs/core/src/compact.rs#L690-L769)。
 
-| 方案 | 有利条件 | 失败或损失的方式 |
-|---|---|---|
-| 固定保留末尾消息 | 短任务、近期信息最重要 | 早期目标和约束消失；裁剪可能切开 call/result |
-| 全部总结成文本 | 对话理解、无严格工具协议 | 丢失对象身份、精确错误或未完成行动关系 |
-| 只压缩工具大输出 | 大日志占主要空间 | 对累计目标、决策和消息数量帮助有限 |
-| 摘要加确定性重建 | 需要继续执行与恢复 | 更多元数据、重建逻辑和验证成本 |
+接着才是容易忽略的一步：把当前环境等程序已知的信息重新放进新上下文。`WorldState` 是这些环境与运行信息的结构化集合，不需要让摘要模型凭记忆重写。
 
-Codex 的已读函数先构造初始上下文/world-state updates，再把 prefix、context 与 compacted history 组合。[F1] **推导：** 将可确定重建的事实从有损摘要中分离，能缩小必须依赖模型准确记忆的范围；但到底保留哪些信息、所有压缩路径是否相同，不能由一个 helper 证明。
+<!-- annotated-source: https://github.com/openai/codex/blob/a9b0815167c27ab13719dd12d13b63e02b70d221/codex-rs/core/src/compact.rs#L86-L95 -->
+```rust
+    // 笔记：环境等结构化信息从当前状态重新生成，不依赖摘要模型回忆。
+    let (updates, snapshot) = sess
+        .build_initial_context_with_world_state(step_context, world_state)
+        .await;
+    // 笔记：先区分前缀与普通上下文，再把重复的 WorldState 更新合并。
+    let (prefix, context) = split_prefix_updates(updates);
+    let context = merge_world_state_updates(context);
+    (
+        // 笔记：最终替换历史同时包含摘要历史和重建的上下文；snapshot 留作后续比较基线。
+        assemble_compaction_history(compacted_history, prefix, context),
+        snapshot,
+    )
+}
+```
 
-反例也应保留：若实验发现大多数输入来自单个超长工具结果，完整摘要调用可能比结果裁剪更贵、更慢；不应为了架构一致而对所有任务都套语义摘要。
+`updates` 被拆成窗口前缀和普通上下文，后者合并后再与压缩历史组装。比如当前工作目录、指令来源发生变化，就应根据本次捕获的环境重新生成相关内容。摘要可以解释“之前为什么修改 A”，程序生成的上下文则告诉后续模型“现在在什么环境里继续”。
 
-## 3. 决策 C02-D2：为什么 live 与 persisted history 要共用稳定身份？
+这个分工也解释了为什么单纯“只留最后十条”不总够用：十条长日志可能挤掉最早的目标；全部交给摘要，又会让本可确定重建的环境信息依赖模型记忆。不过，若主要问题只是某个工具输出过长，先裁剪工具日志往往更简单。
 
-源码注释明确 `replace_compacted_history` 在构造持久化 CompactedItem 前补齐缺失 item ID，以保证 live 和 persisted history 一致。[F1] 这比“为了恢复”更具体：它要求同一次状态替换的对象身份在两边相同。
+<!-- decision: C02-D2 | 为什么内存和存档必须保存同一份新历史？ -->
+## 压缩历史的持久化与恢复
 
-**反事实时间线：** t0 内存摘要生成 ID=a；t1 持久化代码又生成 ID=b；t2 某个后续引用仍指向 a；t3 重启读到只有 b 的历史。即使摘要文字完全一样，引用、更新与差异比较也不再指向同一个对象。这里要解决的是身份一致性，不是文本相似度。
+假设内存里摘要的编号是 `msg-a`，写入文件时又分配成 `msg-b`。文字相同，后续引用却可能找不到原来的消息。Codex 先补齐缺失的消息 ID，然后才同时用于活动历史和压缩检查点。
 
-不过，共用 ID 不意味着两个存储介质原子提交。ThreadStore 的契约区分历史与元数据更新；原始 trace 与业务历史也有不同职责。[F2][F3] **推导边界：** 稳定身份减少一类恢复歧义，但写入失败、部分完成和日志索引重建仍需独立协议。
+下面的 `clone` 保留的是同一批条目的内容和身份；一份进入内存，一份放进待持久化记录：
 
-把事件历史保留为审计证据、让活动上下文是派生视图，是一种候选结构；它不能保证任何未采集的原始请求都可凭空重建。要证明实际模型输入，应检查当时的工具声明、system/developer 内容和路由，而不是仅保存最终摘要。
+<!-- annotated-source: https://github.com/openai/codex/blob/a9b0815167c27ab13719dd12d13b63e02b70d221/codex-rs/core/src/session/mod.rs#L4213-L4226 -->
+```rust
+            // 笔记：前面已经补齐消息 ID；此处克隆使持久化检查点沿用与活动历史相同的身份。
+            let replacement_history = items.clone();
+            // 笔记：items 移交给活动历史；replacement_history 留给下面的持久化记录。
+            state.replace_annotated_history(
+                items,
+                Some(reference_context_item.clone()),
+                HistoryReplacement::Compaction {
+                    reviewer_compaction_hash: metadata.reviewer_compaction_hash,
+                },
+            );
+            state.reasoning_effort_pin = ReasoningEffortPin::Compacted;
+            // 笔记：基线随这次历史替换一起更新，以便下一请求只补充必要的环境变化。
+            state.history.set_world_state_baseline(world_state_baseline);
+            // 笔记：这里只构造待保存条目；磁盘写入发生在后续调用，不能视为原子提交。
+            CompactedItem {
+                message: metadata.message,
+                replacement_history: Some(replacement_history),
+                guardian_history: state.history.guardian_history_checkpoint(),
+```
 
-## 4. 怎样判断这次压缩值得？
+还有一个实际的并发细节：模型正在总结时，用户可能清除了目标。新摘要基于较早的历史，直接替换会把这次清除覆盖掉。实现会找出摘要输入之后接受的目标更新，按原顺序追加到替换历史中。[查看 ID 分配及目标更新合并](https://github.com/openai/codex/blob/a9b0815167c27ab13719dd12d13b63e02b70d221/codex-rs/core/src/session/mod.rs#L4157-L4212)。
 
-采用分析模型：任务总成本 = 摘要调用成本 + 后续模型请求成本 + 因信息损失产生的返工成本。只比较“压缩后少了多少 token”会漏掉摘要请求与失败重做；只看一次模型调用速度也会漏掉前缀缓存变化。
+这种做法增加了重建、合并和存档的复杂度，也挡不住摘要丢失细节。压缩是否划算，要看后续任务能否正确完成，不能只看输入缩短多少。相同 ID 也不意味着内存与磁盘原子提交：这里先换内存，再调用持久化接口。
 
-质量指标应包含目标/约束保留、未完成工具状态、精确文件引用、关键失败证据与最终任务正确性。缓存和价格的具体收益必须实测；本篇没有给出未经测量的节省比例。若需要模型逐字保留大量证据，应考虑外部证据存储加引用，不能要求摘要同时承担无损档案职责。
+## 自测
 
-## 5. 验证与选型结论
+摘要文字正确，但压缩过程中刚接受的“清除目标”不见了，这次压缩算成功吗？
 
-**上游实验待运行：** 准备一个包含早期约束、已完成副作用、失败测试和未完成目标的固定历史，分别运行保留末尾、工具结果裁剪和当前压缩路径。使用 mock 摘要先验证身份及协议，真实摘要质量另做评测。恢复后对照实际请求，不能只对照 UI 转录。
+<details>
+<summary>参考答案</summary>
 
-**失败注入：** 在生成摘要后、替换活动历史后、落盘确认后分别中止测试进程，观察可恢复前缀。必须写清每个观察属于 live、store 还是 model request；身份相同仍可能缺一段已执行效果的结果。
+不算。摘要正确只说明旧输入总结得对；替换历史还必须保留之后接受的目标变更，否则下一请求拿到的是过时状态。
 
-**读后应能自行决策：** 有损内容、确定性状态和审计证据是否应该分开？本工作负载的主瓶颈是否真的来自会话长度？如果不需要恢复，也没有复杂工具协议，简单窗口可能优于当前结构。
+</details>
 
-[F1]: https://github.com/openai/codex/blob/a9b0815167c27ab13719dd12d13b63e02b70d221/codex-rs/core/src/compact.rs#L1-L300
-[F2]: https://github.com/openai/codex/blob/a9b0815167c27ab13719dd12d13b63e02b70d221/codex-rs/thread-store/src/store.rs#L65-L205
-[F3]: https://github.com/openai/codex/blob/a9b0815167c27ab13719dd12d13b63e02b70d221/codex-rs/rollout-trace/README.md
+证据与局限：上游[检查点测试](https://github.com/openai/codex/blob/a9b0815167c27ab13719dd12d13b63e02b70d221/codex-rs/core/src/session/tests.rs#L6229-L6281)同时断言并发目标更新被保留、持久化历史等于活动历史；本轮只阅读，未执行。远端 V2 与 TokenBudget 路径的摘要内容和组织方式不能由本地路径一概推出。

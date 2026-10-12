@@ -1,47 +1,85 @@
-# DSH 01｜为什么同一个 Agent 需要三种输入方式，以及可被替换的默认驱动？
+# DSH 01｜执行循环：输入模式与驱动契约
 
-## 1. 从一个统一 send(message) API 开始
+Agent 正在读文件，你补充“先别改代码，只解释原因”。与此同时，文件监听器报告了一次变化。如果两条消息都立即启动模型，背景通知会变成新任务；如果都排到任务结束，你的纠正又来得太晚。
 
-若所有输入都是用户请求，一个立即唤醒的 send 足够。实际运行时还会注入文件变化、工具结果相关背景、目标续跑和用户纠正。这些消息是否应该立即消耗模型请求、能否加入当前工作，不是同一个问题。
+**要点：消息放在哪里，以及是否叫醒 Agent，是两个不同决定。**
 
-默认 ReactLoopAgent 将 followup 路由到 next-turn 并唤醒，steer 路由到 next-step 并唤醒，inject 放 next-step 但不唤醒；取消后的 waking input 会进入下一 Turn。[F1] 本篇以这些代码事实讨论产品语义，而不是把三个方法仅当别名。
+先认清三个角色：`Agent` 是应用调用的公共接口；默认驱动 `ReactLoopAgent` 决定何时工作；`Session` 记录发生过什么。一次工作叫 **Turn**，其中每次模型请求及随后工具执行叫 **Step**。一次任务通常要走多个 Step。
 
-## 2. 决策 D01-D1：为什么把“有信息”与“应该开始工作”分开？
+<!-- decision: D01-D1 | 新信息是否应该立刻叫醒 Agent？ -->
+## followup、steer 与 inject 的输入语义
 
-**反事实：** 文件观察器每次变化都立刻 send 并调用模型；一次构建产生几十次变化，就可能造成无意续跑与额外成本。另一个极端是所有输入都静默注入，真正用户请求也可能永远不启动。
+默认驱动把区别写得很直白：
 
-| 输入策略 | 合理场景 | 失败模式 |
+<!-- annotated-source: https://github.com/deepseek-ai/deepseek-harness/blob/d743267388641bc76f17c45ce8b4c231aed1d32c/packages/core/agent-loop/src/agent.ts#L163-L173 -->
+```ts
+  // 笔记：followup 等下一 Turn；true 表示这条消息有权唤醒驱动。
+  followup(input: UserMessage): void {
+    this.send(input, 'next-turn', true)
+  }
+
+  // 笔记：steer 在下一 Step 接入，当前已发出的请求或工具不会被撤回。
+  steer(input: UserMessage): void {
+    this.send(input, 'next-step', true)
+  }
+
+  // 笔记：inject 只排队；false 让空闲 Agent 不因背景信息而开工。
+  inject(input: UserMessage): void {
+    this.send(input, 'next-step', false)
+  }
+```
+
+| 方法 | 放到哪里 | 用在什么场景 |
 |---|---|---|
-| 每条输入立刻启动/重启 | 简单请求应答 | 背景信息变成工作指令，重复启动 |
-| 全部排到下一 Turn | 原子短任务 | 长任务无法及时接受纠正 |
-| 全部只注入不唤醒 | 背景状态更新 | 没有独立启动来源时任务不推进 |
-| 信息落点与 wake 分离 | 同时支持背景、纠正和后续任务 | 需要清楚的队列与取消竞争规则 |
+| `followup` | 下一 Turn，并唤醒 | “这件事结束后，再整理报告” |
+| `steer` | 下一 Step，并唤醒 | “调整当前任务的做法” |
+| `inject` | 下一 Step，不主动唤醒 | “这里有一条背景信息” |
 
-**推导：** 输入 API 不只是数据通道，也是调度授权。inject 不唤醒的价值，是让“这条信息可供下一请求使用”不自动等价于“现在有权开始一个新动作”。这不能阻止恶意插件直接发 followup；可信插件边界仍需另设政策。
+回到读文件的例子：`steer` 先排队，当前工具完成后，下一次请求才带上你的纠正。它不会撤回已经发出的模型请求，也不会自动中断当前工具。需要停止执行，要调用取消。
 
-内部 maintenance 状态对外可显示 idle。[F1] 因此 UI idle 不是“没有任何活动资源”的证明。若另一个插件要开始维护或关闭环境，应使用正确生命周期契约，而不是只检查展示状态。
+`inject` 的“不唤醒”也有条件：空闲时只保存待处理信息；如果 Agent 正在工作，它仍会在后续 Step 读到这条信息。代码在领取输入时，先拿全部 next-step 消息；开启新 Turn 时，再取一条 next-turn 消息。因此两个队列决定的是接入时机，消息进入队列还不等于已经送给模型。[领取逻辑见这里](https://github.com/deepseek-ai/deepseek-harness/blob/d743267388641bc76f17c45ce8b4c231aed1d32c/packages/core/agent-loop/src/inbox.ts#L103-L113)。
 
-## 3. 决策 D01-D2：为什么默认 Loop 可替换，但输入与事件语义不能随意变？
+<!-- decision: D01-D2 | 更换循环实现时，哪些行为必须保持一致？ -->
+## Agent 接口与循环驱动的职责
 
-官方架构区分公开 Agent 接口/registry 与默认 agent-loop，实现以公开事件和 Session 事实与其他插件协作。[D1] **设计推导：** 要替换的是策略实现，不是让每个消费者猜测新的 Turn 语义。一个 Goal Driver、UI 或 telemetry 若依赖公开 lifecycle，可以不直接导入 ReactLoopAgent 私有方法；代价是公共契约必须足够稳定和精确。
+命令行的一次性执行器通过 `agents.create()` 创建 Agent，调用 `followup()`，等 `whenIdle()`，还要确认子任务已稳定、等待 Session 保存，再读取结果。它不需要知道内部用了哪种循环。这让其他驱动可以替代默认实现，但替代者要保留公共方法和事件的含义。
 
-默认 turn() 在 claim/pre-step 前记录 turn/start；输入被 reject 或首个 enter 为空时，可以有零个 Step 的 Turn。Step 出错时尝试补齐工具结果，finally 关闭 Step，Turn 也记录结束原因。[F1] 如果只允许“发过模型请求才算 Turn”，被拒绝的接纳和取消就会从生命周期观察中消失；如果失败时不闭合，恢复无法区分意外中断与已正常结算的失败。
+最容易误解的是“开始过一轮”不等于“调用过模型”。默认驱动先记下 `turn/start`，再领取并检查输入。检查插件可以拒绝这次工作：
 
-**反事实：** 一个替换 Loop 把 `turn/end` 当“最终回答文本已生成”，却不等工具结果；消费者可能据此保存检查点或续跑，产生重叠执行。可替换性需要测试公共契约，而不是编译通过就足够。
+<!-- annotated-source: https://github.com/deepseek-ai/deepseek-harness/blob/d743267388641bc76f17c45ce8b4c231aed1d32c/packages/core/agent-loop/src/agent.ts#L318-L328 -->
+```ts
+        // 笔记：领取输入并等待拦截器决定；此时 Turn 已打开，Step 尚未开始。
+        const decision = await this.preStep(target, { turn, step })
+        if (decision.kind === 'reject') {
+          // 笔记：拒绝留下 blocked 结束原因，不进入模型调用。
+          turnEnds = { kind: 'blocked' }
+          return false
+        }
+        if (turnEnds && decision.messages.length === 0) break
+        // A removed waking message or an enter decision rewritten to empty
+        // still owns the initial turn boundary, but it spends no model call.
+        // 笔记：首批输入被清空也可正常结束，所以一个 Turn 可以有零个 Step。
+        if (phase.step === 0 && decision.messages.length === 0) {
+          turnEnds = { kind: 'completed' }
+          return false
+```
 
-## 4. 先 prepare 路由再提交输入的意义
+因此，拒绝时可以只有 `turn/start → turn/end`，中间零个 Step。这仍然是一条有意义的记录：有人要求开工，但系统没有接受。已经开启的 Step 会在 `finally` 中关闭，Turn 也会记录结束原因。应用据此区分完成、拒绝、取消和失败，而不用猜最后一段文字表示什么。
 
-默认 step() 先准备真实 model call，再决定 system prompt 更新和用户消息提交；firstAttempt 防止同 Step retry 重复提交已接纳输入。[F1] 若在可取消的异步 prepare 前就写入所有 user/system 内容，准备失败后日志会暗示这些内容已参与执行，实际却没有发请求。
+这套接口让界面、命令行和插件共用一种工作语义，代价是多了队列、取消竞争和事件顺序。只做短小的一问一答，一个 `send` 加简单循环就足够；需要边做边纠正、后台注入和不同执行策略时，再拆开这些决定。
 
-**推导边界：** 日志可以记录“接纳但未发送”，但必须有明确事件词汇。当前代码选择某种提交边界，并不能证明所有 claim 都 durable 或所有取消都归还输入；要分别阅读 inbox/persistence 与 profile 装配。
+<details>
+<summary>源码与核对范围</summary>
 
-## 5. 代价、验证与更简单的选择
+已按固定版本静态核对[整体架构](https://github.com/deepseek-ai/deepseek-harness/blob/d743267388641bc76f17c45ce8b4c231aed1d32c/docs/architecture.md#L55-L110)、[命令行调用方](https://github.com/deepseek-ai/deepseek-harness/blob/d743267388641bc76f17c45ce8b4c231aed1d32c/packages/bundle/headless/src/index.ts#L347-L398)和[驱动收尾](https://github.com/deepseek-ai/deepseek-harness/blob/d743267388641bc76f17c45ce8b4c231aed1d32c/packages/core/agent-loop/src/agent.ts#L331-L397)。上游测试分别检查[空闲 inject 不调用模型](https://github.com/deepseek-ai/deepseek-harness/blob/d743267388641bc76f17c45ce8b4c231aed1d32c/packages/core/agent-loop/tests/agent.spec.ts#L40-L51)、[纠正在下一请求生效](https://github.com/deepseek-ai/deepseek-harness/blob/d743267388641bc76f17c45ce8b4c231aed1d32c/packages/core/agent-loop/tests/loop.spec.ts#L1018-L1054)、[拒绝后零 Step](https://github.com/deepseek-ai/deepseek-harness/blob/d743267388641bc76f17c45ce8b4c231aed1d32c/packages/core/agent-loop/tests/interception.spec.ts#L250-L271)。本轮阅读了测试，未运行上游。取消后新来的唤醒消息另开 Turn，不能加入已取消的工作；展示状态 idle 也可能包含维护活动。
 
-插件化增加 lifecycle ordering、异步取消、迟到资源和事件语义维护。单一不可定制 Agent 完全可以用直接函数依赖，先不做可替换 Loop；只有模型策略、宿主产品或研究执行器确实要独立变化时，稳定公共边界才值得成本。
+</details>
 
-**上游实验待运行：** followup/steer/inject 各一次，检查模型调用数与输入进入的 Step；pre-step reject/empty 时确认零 Step Turn；在 prepareCall await 期间取消，检查未发送输入没有被误归入已执行历史；让替换驱动运行相同契约测试。
+**小自测：** Agent 已经空闲，先 `inject` 一条通知，再 `steer` 一条要求，会发生什么？
 
-读完应能分别说清信息接纳、工作授权、模型请求与生命周期观察，而不是把它们都叫一轮对话。能解释为什么某个边界必要，也应能说明何时一个普通 send＋循环已足够。
+<details>
+<summary>参考答案</summary>
 
-[F1]: https://github.com/deepseek-ai/deepseek-harness/blob/d743267388641bc76f17c45ce8b4c231aed1d32c/packages/core/agent-loop/src/agent.ts#L140-L530
-[D1]: https://github.com/deepseek-ai/deepseek-harness/blob/d743267388641bc76f17c45ce8b4c231aed1d32c/docs/architecture.md
+通知先留在 next-step 队列，不独立启动任务。steer 唤醒后，两条输入一起被领取；还要通过 pre-step 检查，才会进入实际请求。
+
+</details>

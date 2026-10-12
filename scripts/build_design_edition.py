@@ -1,136 +1,290 @@
 #!/usr/bin/env python3
-"""Compose the design edition while preserving all prior source excerpts.
+"""Render readable notes from research/decisions without rearranging their bodies.
 
-Reads only this repository's pinned previous commit; never executes upstream code.
-The research/decisions files are authoring inputs, not additional main topic notes.
+The authoring files contain the complete lesson, including inline source excerpts.
+This checks generation and indexing, not the correctness of the explanations.
+No previous Git revision or upstream execution is required.
 """
 from __future__ import annotations
+
 import argparse
+import hashlib
 import json
 import re
 import subprocess
+from datetime import datetime, timezone
 from pathlib import Path
 
-BASE = '69577b8d1dc34b052090b43206faa9fcd2c597b2'
-PROJECTS = ('codex', 'opencode', 'dsh')
-EXCERPT = re.compile(r'<!-- source: (?P<url>https://github\.com/[^\s]+) -->\n```(?P<lang>rust|ts)\n(?P<code>.*?)^```[ \t]*$', re.M | re.S)
-DECISION = re.compile(r'^## [^\n]*决策 ([COD]\d{2}-D[12])：([^\n]+)$', re.M)
+PROJECTS = {'codex': 'C', 'opencode': 'O', 'dsh': 'D'}
+EXCERPT = re.compile(
+    r'<!-- (?P<kind>source|annotated-source): (?P<url>https://github\.com/[^\s]+) -->\n'
+    r'```(?P<lang>rust|ts)\n(?P<code>.*?)^```[ \t]*$', re.M | re.S,
+)
+DECISION = re.compile(r'^<!-- decision: ([COD]\d{2}-D[12]) \| ([^\n]+?) -->[ \t]*$', re.M)
+SOURCE_MARKER = re.compile(r'<!--\s*(?:annotated-source|source)\s*:')
+ANNOTATION = re.compile(r'^[ \t]*// 笔记：(?P<text>[^\r\n]*)$')
 
 
-def h2_sections(text: str) -> list[str]:
-    parts: list[str] = []
-    current: list[str] = []
-    in_code = False
+def code_line_contexts(code: str, language: str) -> list[bool]:
+    """Whether each line (plus EOF) starts outside a string or block comment.
+
+    This is deliberately conservative: template interpolation is protected as
+    string content too. It is only used to recognize removable teaching lines,
+    never to rewrite expressions or claim that the source program is valid.
+    """
+    contexts: list[bool] = []
+    quote: str | None = None
+    raw_end: str | None = None
+    block_depth = 0
+    for line in code.replace('\r\n', '\n').splitlines(keepends=True):
+        contexts.append(quote is None and raw_end is None and block_depth == 0)
+        index = 0
+        while index < len(line):
+            if raw_end is not None:
+                end = line.find(raw_end, index)
+                if end < 0:
+                    break
+                index, raw_end = end + len(raw_end), None
+            elif block_depth:
+                if line.startswith('*/', index):
+                    block_depth -= 1
+                    index += 2
+                elif language == 'rust' and line.startswith('/*', index):
+                    block_depth += 1
+                    index += 2
+                else:
+                    index += 1
+            elif quote is not None:
+                if line[index] == '\\':
+                    index += 2
+                elif line[index] == quote:
+                    quote = None
+                    index += 1
+                else:
+                    index += 1
+            elif line.startswith('//', index):
+                break
+            elif line.startswith('/*', index):
+                block_depth = 1
+                index += 2
+            elif language == 'rust' and (raw := re.match(r'(?:br|r)(#*)"', line[index:])):
+                raw_end = '"' + raw[1]
+                index += raw.end()
+            elif line[index] in ('"', '`') or (language == 'ts' and line[index] == "'"):
+                quote = line[index]
+                index += 1
+            elif language == 'rust' and line[index] == "'":
+                # Rust lifetimes ('a) are not strings; skip only complete chars.
+                char = re.match(r"'(?:\\(?:u\{[0-9a-fA-F_]+\}|x[0-9a-fA-F]{2}|.)|[^'\\\n])'", line[index:])
+                index += char.end() if char else 1
+            else:
+                index += 1
+    contexts.append(quote is None and raw_end is None and block_depth == 0)
+    return contexts
+
+
+def source_code(kind: str, language: str, code: str) -> tuple[str, int]:
+    """Remove only explicit, standalone teaching comments from annotated blocks."""
+    code = code.replace('\r\n', '\n')
+    if not code.strip():
+        raise ValueError('empty source excerpt')
+    if kind == 'source':
+        return code, 0
+    if kind != 'annotated-source':
+        raise ValueError(f'unsupported source marker: {kind}')
+    result: list[str] = []
+    count = 0
+    for line, in_code in zip(code.splitlines(keepends=True), code_line_contexts(code, language)):
+        bare = line.removesuffix('\n')
+        annotation = ANNOTATION.fullmatch(bare)
+        if in_code and annotation:
+            if not annotation['text'].strip():
+                raise ValueError('empty teaching annotation: // 笔记： requires text')
+            count += 1
+            continue
+        if in_code and re.match(r'^[ \t]*//[ \t]*笔记', bare):
+            raise ValueError('malformed teaching annotation; use a standalone // 笔记：text line')
+        result.append(line)
+    if not count:
+        raise ValueError('annotated-source requires at least one standalone // 笔记：text line')
+    original = ''.join(result)
+    if not original.strip():
+        raise ValueError('annotated-source requires nonempty original code')
+    return original, count
+
+
+def excerpt_stats(text: str, relative: str) -> dict[str, int]:
+    matches = list(EXCERPT.finditer(text.replace('\r\n', '\n')))
+    if len(matches) != len(SOURCE_MARKER.findall(text)):
+        raise ValueError(f'{relative}: a source marker has no adjacent rust/ts code block')
+    counts = {'source_excerpts': len(matches), 'verbatim_source_excerpts': 0,
+              'annotated_source_excerpts': 0, 'annotation_lines': 0}
+    for match in matches:
+        try:
+            _, count = source_code(match['kind'], match['lang'], match['code'])
+        except ValueError as error:
+            raise ValueError(f'{relative}: {error}') from error
+        counts['annotation_lines'] += count
+        counts['annotated_source_excerpts' if match['kind'] == 'annotated-source'
+               else 'verbatim_source_excerpts'] += 1
+    return counts
+
+
+def outside_fences(text: str) -> str:
+    """Hide fenced content when reading metadata; reject unfinished fences."""
+    result: list[str] = []
+    fence: str | None = None
     for line in text.splitlines(keepends=True):
-        if not in_code and line.startswith('## '):
-            if current:
-                parts.append(''.join(current))
-            current = []
-        current.append(line)
-        if line.lstrip().startswith('```'):
-            in_code = not in_code
-    if in_code:
+        marker = re.match(r'^ {0,3}(`{3,}|~{3,})', line)
+        if fence is None:
+            if marker:
+                fence = marker[1]
+            else:
+                result.append(line)
+        elif re.fullmatch(r' {0,3}' + re.escape(fence[0]) + r'{' + str(len(fence)) + r',}[ \t]*\n?', line):
+            fence = None
+    if fence is not None:
         raise ValueError('unclosed code fence')
-    if current:
-        parts.append(''.join(current))
-    return parts
+    return ''.join(result)
 
 
-def demote_headings(text: str) -> str:
-    output: list[str] = []
-    in_code = False
-    for line in text.splitlines(keepends=True):
-        if not in_code and re.match(r'^#{2,5} ', line):
-            line = '#' + line
-        output.append(line)
-        if line.lstrip().startswith('```'):
-            in_code = not in_code
-    return ''.join(output)
+def signatures(text: str) -> list[tuple[str, str, str, str]]:
+    return [(m['kind'], m['url'], m['lang'], m['code']) for m in EXCERPT.finditer(text)]
 
 
-def signatures(text: str) -> list[tuple[str, str, str]]:
-    return [(m['url'], m['lang'], m['code']) for m in EXCERPT.finditer(text)]
+def decisions_for(design: str, relative: str) -> list[tuple[str, str]]:
+    path = Path(relative)
+    directory, number = path.parent.name, path.name.split('-', 1)[0]
+    if directory not in PROJECTS or number not in {f'{n:02d}' for n in range(1, 9)}:
+        raise ValueError(f'{relative}: unexpected project or topic number')
+    prose = outside_fences(design)
+    decisions = DECISION.findall(prose)
+    if len(decisions) != prose.count('<!-- decision:'):
+        raise ValueError(f'{relative}: malformed decision marker')
+    expected = {f'{PROJECTS[directory]}{number}-D1', f'{PROJECTS[directory]}{number}-D2'}
+    if len(decisions) != 2 or {item[0] for item in decisions} != expected:
+        raise ValueError(f'{relative}: requires exactly {", ".join(sorted(expected))}, with no duplicate IDs')
+    if any(not title.strip() for _, title in decisions):
+        raise ValueError(f'{relative}: empty indexed question')
+    return sorted(decisions)
 
 
-def compose(original: str, design: str, relative: str, pin: str) -> str:
-    original = original.replace('\r\n', '\n')
+def compose(design: str, relative: str, pin: str, research_date: str = '') -> str:
     design = design.replace('\r\n', '\n')
     title, sep, body = design.partition('\n')
-    if not title.startswith('# ') or not sep:
-        raise ValueError(f'{relative}: missing design title')
-    decisions = DECISION.findall(design)
-    if len(decisions) != 2:
-        raise ValueError(f'{relative}: requires exactly two indexed decisions')
-    if len(re.findall(r'[\u4e00-\u9fff]', design)) < 850:
-        raise ValueError(f'{relative}: design text is unexpectedly short')
-    selected = [part for part in h2_sections(original) if '<!-- source:' in part]
-    if not selected or len(signatures(original)) < 2:
-        raise ValueError(f'{relative}: missing original source sections')
-    sources = '\n\n'.join(demote_headings(part.strip() + '\n').strip() for part in selected)
-    definitions = '\n'.join(line for line in original.splitlines() if re.match(r'^\[[^\]]+\]:\s+https?://', line))
-    result = (
-        title + '\n\n[总目录](../README.md) · [设计索引](../DESIGN_INDEX.md) · [研究方法与证据](../RESEARCH_METHOD.md)\n\n'
-        + f'**设计研究版 v3｜研究日期：2026-10-12｜固定源码：`{pin}`。** '
-        + '下面先论证需求、反例、候选方案与代价，再展开真实源码。作者明示理由、文档契约和研究推导分别标注；上游运行实验仍为待运行。\n\n'
-        + body.strip() + '\n\n## 6. 核心源码与逐段核对\n\n'
-        + '以下保留上一版的全部核心源码块及所在导读段；源码、缩进与定位范围不改写。前文设计研究补足其适用前提和反例，特别不能将收益概括误当作运行保证。\n\n'
-        + sources + '\n\n' + definitions + '\n\n## 7. 记录与验证边界\n\n'
-        + '源码一致性检查只核对代码与固定版本匹配；设计结构检查只核对章节、决策编号和生成完整性，不证明论证正确。'
-        + '自建机制测试只验证抽象反例；没有编译或运行上游 Agent、真实模型、性能评测或 OS 沙箱测试。'
-        + f'完整上一版保存在 [Git 历史](https://github.com/solstice621/Agent-Learning-Notes/blob/{BASE}/{relative})。'
-        + '源码归属与许可见 [第三方声明](../THIRD_PARTY_NOTICES.md)。\n'
+    if not title.startswith('# ') or not title[2:].strip() or not sep:
+        raise ValueError(f'{relative}: missing note title')
+    decisions_for(design, relative)
+    stats = excerpt_stats(design, relative)
+    if stats['source_excerpts'] < 2:
+        raise ValueError(f'{relative}: requires at least two nonempty source excerpts')
+    project = Path(relative).parent.name
+    batch = '01-04' if int(Path(relative).name[:2]) <= 4 else '05-08'
+    dated = f'｜研究日期：{research_date}' if research_date else ''
+    annotation_notice = ('代码中 `// 笔记：` 为新增中文注释，其余保留上游原文。\n\n'
+                         if stats['annotated_source_excerpts'] else '')
+    # Keep the body intact: explanations and their excerpts stay together.
+    return (
+        title + '\n\n[总目录](../README.md) · [先读导览](../START_HERE.md) · '
+        '[项目架构](00-architecture.md) · [问题索引](../DESIGN_INDEX.md)\n\n'
+        + annotation_notice + body.strip('\n') + '\n\n---\n\n'
+        + f'固定源码：`{pin}`{dated}。\n\n'
+        + f'[源码重读记录](../research/reread/{project}-{batch}.md) · '
+        + '[研究方法与验证边界](../RESEARCH_METHOD.md) · [源码归属与许可](../THIRD_PARTY_NOTICES.md)\n'
     )
-    if signatures(original) != signatures(result):
-        raise ValueError(f'{relative}: source excerpt loss, change, or reordering')
-    return result
 
 
-def read_base(root: Path, relative: str) -> str:
-    return subprocess.run(['git', 'show', f'{BASE}:{relative}'], cwd=root,
-                          check=True, text=True, encoding='utf-8', capture_output=True).stdout
+def notes_head(root: Path) -> str | None:
+    try:
+        return subprocess.run(['git', 'rev-parse', 'HEAD'], cwd=root, check=True,
+                              text=True, capture_output=True).stdout.strip()
+    except (OSError, subprocess.CalledProcessError):
+        return None
 
 
 def build(root: Path, check: bool = False) -> dict:
-    lock = json.loads((root / 'source-lock.json').read_text(encoding='utf-8'))
+    lock_path = root / 'source-lock.json'
+    lock_bytes = lock_path.read_bytes()
+    lock = json.loads(lock_bytes)
     changed: list[str] = []
-    index = ['# 48 项设计决策索引\n', '[总目录](README.md) · [证据与方法](RESEARCH_METHOD.md)\n',
-             '24 篇主笔记各研究两项决策；编号不是产品能力评分。表中问题均链接到包含源码和论证的主笔记。\n',
-             '| 项目 / 专题 | 决策一 | 决策二 |\n|---|---|---|']
-    excerpt_count = 0
-    decision_count = 0
+    inputs = {'source-lock.json': hashlib.sha256(lock_bytes).hexdigest()}
+    index = ['# 48 个问题索引\n', '[总目录](README.md) · [先读导览](START_HERE.md)\n',
+             '每篇围绕两个具体问题展开；点击项目与专题，进入例子、解释和相邻的源码。编号只用于定位。\n',
+             '| 项目 / 专题 | 问题一 | 问题二 |\n|---|---|---|']
+    counts = {'source_excerpts': 0, 'verbatim_source_excerpts': 0,
+              'annotated_source_excerpts': 0, 'annotation_lines': 0}
+    architecture_notes = 0
+    architecture_excerpts = 0
+    seen: set[str] = set()
+    generated: dict[str, str] = {}
     for project in lock['repositories']:
         directory = project['notes_directory']
         if directory not in PROJECTS:
-            raise ValueError('unexpected project directory')
+            raise ValueError(f'unexpected project directory: {directory}')
+        # Architecture chapters are hand-authored and never overwritten here.
+        architecture = root / directory / '00-architecture.md'
+        if architecture.exists():
+            architecture_notes += 1
+            content = architecture.read_bytes()
+            relative = architecture.relative_to(root).as_posix()
+            inputs[relative] = hashlib.sha256(content).hexdigest()
+            stats = excerpt_stats(content.decode('utf-8'), relative)
+            architecture_excerpts += stats['source_excerpts']
+            for key in counts:
+                counts[key] += stats[key]
         for topic in lock['topics']:
             relative = f"{directory}/{topic['id']}-{topic['slug']}.md"
+            if relative in generated:
+                raise ValueError(f'duplicate note in source-lock.json: {relative}')
             source = root / 'research/decisions' / relative
-            design = source.read_text(encoding='utf-8')
-            original = read_base(root, relative)
-            rendered = compose(original, design, relative, project['repository'] + '@' + project['commit'])
-            decisions = DECISION.findall(design)
-            decision_count += len(decisions)
-            excerpt_count += len(signatures(rendered))
-            index.append(f"| [{directory} {topic['id']}]({relative}) | `{decisions[0][0]}` {decisions[0][1]} | `{decisions[1][0]}` {decisions[1][1]} |")
-            destination = root / relative
-            if destination.read_text(encoding='utf-8') != rendered:
-                changed.append(relative)
-                if not check:
-                    destination.write_text(rendered, encoding='utf-8')
-    if excerpt_count != 70 or decision_count != 48:
-        raise ValueError(f'unexpected coverage: {excerpt_count} excerpts / {decision_count} decisions')
-    index_text = '\n'.join(index) + '\n'
-    target = root / 'DESIGN_INDEX.md'
-    if not target.exists() or target.read_text(encoding='utf-8') != index_text:
-        changed.append('DESIGN_INDEX.md')
-        if not check:
-            target.write_text(index_text, encoding='utf-8')
-    report = {'status': 'FAIL' if check and changed else 'PASS', 'base_commit': BASE,
-              'main_notes': 24, 'indexed_design_decisions': decision_count,
-              'preserved_source_excerpts': excerpt_count, 'changed_files': changed,
-              'upstream_runtime_tests_run': False,
-              'scope': 'Generated-text equality, decision structure, and verbatim excerpt preservation; not argument correctness'}
-    return report
+            content = source.read_bytes()
+            inputs[source.relative_to(root).as_posix()] = hashlib.sha256(content).hexdigest()
+            design = content.decode('utf-8')
+            rendered = compose(design, relative, project['repository'] + '@' + project['commit'],
+                               lock.get('research_date', ''))
+            decisions = decisions_for(design, relative)
+            for decision, _ in decisions:
+                if decision in seen:
+                    raise ValueError(f'duplicate decision ID: {decision}')
+                seen.add(decision)
+            stats = excerpt_stats(rendered, relative)
+            for key in counts:
+                counts[key] += stats[key]
+            cells = [f'`{key}` {title.replace("|", "&#124;")}' for key, title in decisions]
+            index.append(f"| [{directory} {topic['id']}]({relative}) | {cells[0]} | {cells[1]} |")
+            generated[relative] = rendered
+    note_count = len(generated)
+    if note_count != 24 or len(seen) != 48:
+        raise ValueError(f'unexpected coverage: {note_count} notes / {len(seen)} questions (expected 24 / 48)')
+    if 'architecture_notes' in lock and architecture_notes != lock['architecture_notes']:
+        raise ValueError(f'unexpected architecture coverage: {architecture_notes} '
+                         f"(expected {lock['architecture_notes']})")
+    generated['DESIGN_INDEX.md'] = '\n'.join(index) + '\n'
+    # Validate every source before modifying any generated file.
+    for relative, rendered in generated.items():
+        destination = root / relative
+        if not destination.exists() or destination.read_text(encoding='utf-8') != rendered:
+            changed.append(relative)
+            if not check:
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                destination.write_text(rendered, encoding='utf-8')
+    return {
+        'status': 'FAIL' if check and changed else 'PASS',
+        'generated_at_utc': datetime.now(timezone.utc).isoformat(timespec='seconds'),
+        'notes_head': notes_head(root),
+        'input_sha256': inputs,
+        'input_digest_sha256': hashlib.sha256(json.dumps(inputs, sort_keys=True).encode()).hexdigest(),
+        'main_notes': note_count, 'indexed_design_decisions': len(seen),
+        'topic_notes': note_count, 'architecture_notes': architecture_notes,
+        'topic_source_excerpts': counts['source_excerpts'] - architecture_excerpts,
+        'architecture_source_excerpts': architecture_excerpts,
+        **counts, 'changed_files': changed,
+        'upstream_runtime_tests_run': False,
+        'scope': ('Generated-text equality, question IDs and annotation syntax; architecture chapters '
+                  'are counted but not generated. Source equality, with only marked teaching comment '
+                  'lines removed from annotated-source blocks, is checked separately. '
+                  'Neither proves explanation or annotation correctness.'),
+    }
 
 
 def main() -> int:
@@ -139,7 +293,11 @@ def main() -> int:
     parser.add_argument('--check', action='store_true')
     parser.add_argument('--report', type=Path)
     args = parser.parse_args()
-    result = build(args.root.resolve(), args.check)
+    try:
+        result = build(args.root.resolve(), args.check)
+    except (OSError, ValueError, KeyError) as error:
+        result = {'status': 'FAIL', 'errors': [str(error)],
+                  'generated_at_utc': datetime.now(timezone.utc).isoformat(timespec='seconds')}
     if args.report:
         args.report.parent.mkdir(parents=True, exist_ok=True)
         args.report.write_text(json.dumps(result, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')

@@ -1,69 +1,54 @@
-# OpenCode 05｜为什么插件卸载要重新计算状态，坏更新又不应一律保留旧版本？
+# OpenCode 05｜插件管理：状态重算与更新失败处理
 
-[总目录](../README.md) · [设计索引](../DESIGN_INDEX.md) · [研究方法与证据](../RESEARCH_METHOD.md)
+[总目录](../README.md) · [先读导览](../START_HERE.md) · [项目架构](00-architecture.md) · [问题索引](../DESIGN_INDEX.md)
 
-**设计研究版 v3｜研究日期：2026-10-12｜固定源码：`anomalyco/opencode@60a212c0769acd96b446acbadeb790486830f91d`。** 下面先论证需求、反例、候选方案与代价，再展开真实源码。作者明示理由、文档契约和研究推导分别标注；上游运行实验仍为待运行。
+代码中 `// 笔记：` 为新增中文注释，其余保留上游原文。
 
-## 1. 问题：插件修改的不是一张静态功能表
+假设模型原名叫 X，插件 A 把它改成 A，插件 B 又改成 B。现在卸载 A：如果 A 执行“恢复成 X”，仍在工作的 B 就被覆盖了。
 
-模型目录可以来自配置、远程数据和认证状态；插件可随运行加载、更新或移除。朴素实现让每个插件直接修改全局对象，卸载时“把它改过的字段改回来”。当多个插件覆盖相同字段，这种逆操作可能错误恢复过时值。
+**更可靠的办法是：保留仍有效的修改，按原顺序重新算一遍。** 插件更新出错时，再根据出错阶段决定保留还是撤下。
 
-官方历史决策记录比较过 Config transforms 与 Catalog transforms，明确选择后者；当前生命周期则应看 PluginSupervisor，而不是把历史接口草图当作当前 API。[A1][F1]
+这套机制位于项目实例内部。`PluginSupervisor` 决定本次应该启用哪些插件，`Plugin` 管理它们的加载和清理，`State` 根据插件登记的修改生成工具、命令等领域状态。可以把它理解为：先决定谁在场，再计算它们合起来提供什么。
 
-## 2. 决策 O05-D1：为什么重放贡献比让每个插件自己 undo 更可控？
+<!-- decision: O05-D1 | 卸载后怎样保住其他插件的修改？ -->
+## 卸载插件后的状态重算
 
-**分析例子：** 基线名称 X，插件 A 改为 A，插件 B 再改为 B。卸载 A 时若它执行“恢复 X”，会覆盖仍有效的 B。与其要求每个插件理解后续覆盖，不如从基线重放当前有效贡献，重新产生最终状态。
+插件登记的是一段修改步骤，源码叫 `transform`。每次需要重建，`State` 都先创建新对象，再顺序执行仍有效的步骤：
 
-官方选定 Catalog transforms 的直接理由是：允许任意 Config transform 修改任何配置，会让系统无法安全判断只重载某一域是否够用，可能需要全服务 reload；将变化限制在 Catalog 后，可将重建职责放回 Catalog。[A1]
-
-| 方案 | 优势 | 成本或反例 |
-|---|---|---|
-| 插件直接修改＋自行 undo | 简单场景代码少 | 叠加覆盖和卸载顺序容易破坏状态 |
-| 任意 Config transform＋全局 reload | 一个统一扩展入口 | 变化影响面过大、就绪震荡 |
-| 域内 transform＋重放有效贡献 | 撤销可重新计算、影响域明确 | 顺序、重建、diff 发布需要协议 |
-| 插件独立进程＋纯协议 | 隔离更强 | 状态同步、序列化、故障管理更复杂 |
-
-重放不是天然免费：插件 transform 若不纯、含外部副作用，重复运行会有不同效果；变化频繁还可能造成重建放大。历史文档也指出 Catalog 重建的 debounce 不会从 transform API 自动出现，需额外协调。[A1]
-
-## 3. 决策 O05-D2：为什么普通更新失败保留旧 generation，而明确 blocked 不应如此？
-
-Supervisor 对新 revision 加载失败记录独立失败，并保留先前运行 generation；重复 ID 也不会让整代内建插件一起丢失。但 `blocked` 分支会撤销先前包的启用与记录。[F1]
-
-**推导：** “新版坏了”与“政策不允许这个插件继续”是不同事件。对前者 last-known-good 提高可用性；对后者继续使用旧版可能违背禁用意图。不能将保留旧版本作为所有错误通用恢复策略。
-
-时间线：t0 A_v1 活跃；t1 A_v2 导入失败；保持 v1 是一种合理降级。若 t1 是明确禁止 A，则保留 v1 不是降级，而是绕过当前政策。具体 blocked 的全部来源尚需继续审计，本篇只依已读分支说明二者在实现中被区分。
-
-generation 编号还用于拒绝过期异步更新结果。observed/hold 则使变更即使被 sliding queue 合并，也不会在激活未完成时误报 ready。[F1] 这些各自防止不同竞争，不能笼统叫“缓存”。
-
-## 4. 卸载的隐藏成本：旧请求还拿着旧能力
-
-请求捕获工具值能保证声明与执行一致，但也意味着新 generation 激活后，旧请求可能仍持有旧工具。资源清理必须与依赖服务关闭有明确顺序；Supervisor 为 registry.close 安排 finalizer。[F1]
-
-**研究边界：** 这段源码不能证明全部 registry 内部的热卸载都能等待所有活动调用。应该继续追踪 Scope 和请求快照的实际引用关系。对必须立即撤销的能力，更新逻辑还需要实时拒绝或取消，而不是只等待对象最终回收。
-
-是否值得热更新？短命单次 CLI 可以直接重启，以明显更低的复杂度获得配置一致性；长期多 Session 服务不能随意停机时，代际与就绪屏障才更有价值。学习成熟系统不等于默认复制它所有热重载能力。
-
-## 5. 验证与自测
-
-本仓库机制实验构造 A/B 覆盖后卸载 A，比较 naive undo 与 replay 的结果，属于自建模型，不是 PluginSupervisor 测试。
-
-**上游实验待运行：** 有效 v1 → 无法加载 v2 → 明确 blocked 三步比较；配置突发中让旧检查结果晚到，确认不会覆盖新 generation；工具执行中禁用插件，检查旧工作、新请求和资源回收分别怎样变化。
-
-读后应能回答：哪些变化适合保留旧版，哪些需要 fail-closed；撤销操作是逆修改还是重建有效贡献；为了热更新究竟增加了哪些所有权和同步成本。
-
-[A1]: https://github.com/anomalyco/opencode/blob/60a212c0769acd96b446acbadeb790486830f91d/specs/v2/catalog-config-plugin-lifecycle.md
-[F1]: https://github.com/anomalyco/opencode/blob/60a212c0769acd96b446acbadeb790486830f91d/packages/core/src/plugin/supervisor.ts#L1-L270
-
-## 6. 核心源码与逐段核对
-
-以下保留上一版的全部核心源码块及所在导读段；源码、缩进与定位范围不改写。前文设计研究补足其适用前提和反例，特别不能将收益概括误当作运行保证。
-
-### 2. 核心源码 A：新版本失败，不一定卸掉旧版本
-
-源码：[`plugin/supervisor.ts`，L65–L168](https://github.com/anomalyco/opencode/blob/60a212c0769acd96b446acbadeb790486830f91d/packages/core/src/plugin/supervisor.ts#L65-L168)。
-
-<!-- source: https://github.com/anomalyco/opencode/blob/60a212c0769acd96b446acbadeb790486830f91d/packages/core/src/plugin/supervisor.ts#L65-L168 -->
+<!-- annotated-source: https://github.com/anomalyco/opencode/blob/60a212c0769acd96b446acbadeb790486830f91d/packages/core/src/state.ts#L172-L184 -->
 ```ts
+  const get = () => {
+    // 笔记：没有变化时直接复用已算好的状态，避免每次读取都重放插件。
+    if (closed || !dirty) return state
+    while (true) {
+      const started = version
+      // 笔记：重建从全新初始值开始，剩余修改依次重放；不在旧读者持有的对象上撤销修改。
+      const next = options.initial()
+      const editor = options.editor(next)
+      for (const transform of transforms) {
+        try {
+          transform.run(editor)
+        } catch (cause) {
+          if (!transform.group) throw cause
+          // 笔记：有分组的插件失败时撤下整组贡献；后续版本检查会丢弃这一半成品并重建。
+          disable(transform.group, { state: options.name ?? "anonymous", cause })
+        }
+```
+
+回到例子：卸载 A 后，重新从 X 开始，只执行 B，结果仍然是 B。关闭插件的资源作用域时，它登记的步骤会被删除，下一次重建自然就不再包含它。旧读者已经拿到的对象也不会被原地改写。
+
+重新算有成本。因此注册表会保留开头连续未变的插件，只清理并重新加载从第一个变化位置往后的部分。即使 B 自己没更新，只要前面的 A 变了，B 也可能重载，以保住修改顺序。`State.batch` 则把这段过程中重复的变化通知合并起来；它没有替任意外部操作提供回滚。
+
+这里最重要的写法约束是：修改步骤要能重复执行。把“发送邮件”放进 `transform`，每次重算都可能再发一封。
+
+<!-- decision: O05-D2 | 新插件坏了，什么时候还能继续用旧版？ -->
+## 加载失败与策略禁用的处理差异
+
+设 v1 正常，刚保存的 v2 有语法错误，连模块都无法导入。Supervisor 会记录失败，并把已运行版本放回本次启用名单：
+
+<!-- annotated-source: https://github.com/anomalyco/opencode/blob/60a212c0769acd96b446acbadeb790486830f91d/packages/core/src/plugin/supervisor.ts#L79-L90 -->
+```ts
+    // 笔记：这是新版模块加载失败分支；明确被策略禁用的 blocked 分支在此前单独处理。
     if ("error" in plugin) {
       failures.set(operation.target, {
         source: pluginSource(operation.target),
@@ -71,63 +56,37 @@ generation 编号还用于拒绝过期异步更新结果。observed/hold 则使�
         features: { server: true },
       })
       // The new revision never became a generation, so the one already running keeps its place.
+      // 笔记：新版尚未成为运行版本，先找仍可保留的旧版；从未成功加载过则没有回退对象。
       const retained = packages.get(operation.target) ?? running.get(operation.target)
       if (!retained) continue
       packages.set(operation.target, retained)
       enabled.add(retained.id)
       continue
-    }
 ```
 
-#### 逐段讲解
+这段保留的是“新版还没加载起来”的情况。继续往下追，普通初始化失败时，注册表也会尝试重新加载旧版；但如果是修改步骤在重放时抛错，系统会撤下该插件整组贡献，避免留下改到一半的状态。
 
-failure 独立记录更新失败与诊断 ref；然后查找可保留的旧 generation。如果存在，就把旧对象维持在 packages/enabled 中，而不是将失败的新对象发布出去。
+还有一种更直接的撤下：策略已经禁止使用这个插件。模块加载器会先检查 `integration.use`，命中禁止规则就返回 `blocked`，Supervisor 不把旧版放回名单。这次重读确认了具体来源，而不只是从变量名猜“可能被禁用”。相关分支见[加载器](https://github.com/anomalyco/opencode/blob/60a212c0769acd96b446acbadeb790486830f91d/packages/core/src/plugin/module.ts#L49-L60)。
 
-“更新失败”与“当前能力不可用”因此不是同义词。但这段只处理未成功成为 generation 的加载错误；不能推导已激活插件内部抛异常也总能自动回滚。
+所以，“更新失败就继续用旧版”太宽泛。需要分别处理导入失败、初始化失败、重放失败和明确禁用。
 
-**设计分析：** 将期望 revision、实际运行 generation 和 failure 状态分开，能防止错误配置一次性移除正在服务的能力。代价是操作者必须能看见当前仍是旧版，不能静默宣称升级成功。
+## 适用条件与实现成本
 
-### 3. 核心源码 B：重复 ID 不应拖垮整个 generation
+一次运行就退出的小工具，修改插件后重启通常已经够用。长期服务需要热更新，才值得支付重建、顺序维护、旧资源清理和失败隔离的成本。
 
-同一源码范围。
+**小自测：** A、B 依次覆盖同一个名字，卸载 A 后应该显示什么？如果 B 被策略禁用，可以用“保留旧版”维持它吗？
 
-<!-- source: https://github.com/anomalyco/opencode/blob/60a212c0769acd96b446acbadeb790486830f91d/packages/core/src/plugin/supervisor.ts#L65-L168 -->
-```ts
-  // Registry activation dies on a duplicate ID, which would drop the whole generation including builtins.
-  // Keep the first occurrence in boot order and report later ones like any other plugin setup failure.
-  const duplicate = (plugin: Plugin.Generation, index: number) =>
-    ordered.findIndex((other) => other.id === plugin.id) !== index
-```
+<details>
+<summary>展开答案</summary>
 
-判定以启动顺序中首次出现的位置为准。后续返回结构分别过滤 active plugins，并把重复项加入 failures。这里不是工具同名覆盖机制，而是 plugin ID 冲突处理；不要把两种命名空间混淆。
+仍显示 B，因为只重放剩余修改。B 被禁用后应退出当前启用名单；保留旧版适用于特定加载失败，不能绕过禁用。
 
-**反例练习：** 如果先把整组插件交给 registry 才发现重复，内建能力也可能随这一代激活失败。用隔离配置添加一个重复 ID，观察哪些插件仍运行、哪里报告失败。
+</details>
 
-### 4. 核心源码 C：依赖关闭前先卸载消费者
+> 证据边界：已读实现及卸载、失败回退、组织策略变化的上游测试，未运行。历史 Catalog 方案只帮助理解动机；这里按当前 `State` 与插件注册表讲解。
 
-同一源码范围。
+---
 
-<!-- source: https://github.com/anomalyco/opencode/blob/60a212c0769acd96b446acbadeb790486830f91d/packages/core/src/plugin/supervisor.ts#L65-L168 -->
-```ts
-    let release: Effect.Effect<void> | undefined = yield* registry.hold()
-    yield* Effect.addFinalizer(() => release ?? Effect.void)
-    // Built-ins capture services from this layer; unload them before those services close.
-    yield* Effect.addFinalizer(registry.close)
-    let packages = new Set<string>()
-    // Last generation handed to the registry per target; a failed reload keeps it in place.
-    let running = new Map<string, Plugin.Generation>()
-    let outdated = new Set<string>()
-    const updating = new Set<string>()
-    let generation = 0
-    let observed = 0
-```
+固定源码：`anomalyco/opencode@60a212c0769acd96b446acbadeb790486830f91d`｜研究日期：2026-10-12。
 
-hold/release 表达就绪门的生命周期；finalizer 保证正常退出或失败时有清理入口。注释特别要求捕获服务的内建插件先卸载，再让依赖服务关闭，防止清理 callback 使用已经不存在的资源。
-
-running/outdated/updating/generation/observed 各自表示不同状态，不应压成单一 `loaded:true`。此处只展示声明与初始化；异步代际检查及触发合并还要看后面的 activate/watch 实现，不能从变量名推断全部保证。
-
-
-
-## 7. 记录与验证边界
-
-源码一致性检查只核对代码与固定版本匹配；设计结构检查只核对章节、决策编号和生成完整性，不证明论证正确。自建机制测试只验证抽象反例；没有编译或运行上游 Agent、真实模型、性能评测或 OS 沙箱测试。完整上一版保存在 [Git 历史](https://github.com/solstice621/Agent-Learning-Notes/blob/69577b8d1dc34b052090b43206faa9fcd2c597b2/opencode/05-extension-architecture.md)。源码归属与许可见 [第三方声明](../THIRD_PARTY_NOTICES.md)。
+[源码重读记录](../research/reread/opencode-05-08.md) · [研究方法与验证边界](../RESEARCH_METHOD.md) · [源码归属与许可](../THIRD_PARTY_NOTICES.md)

@@ -6,7 +6,7 @@
 
 某些结论可以用明确假设和很少状态检验，例如在途并发上限能否限制所有结果积压、一个 busy 标记会不会在特定窗口丢唤醒。这些实验不需要真实模型，更不应该让模型随机输出掩盖状态机问题。
 
-本轮实现并运行了 22 项 Python 标准库确定性测试。它们全部是独立编写的教学模型，不是从三个仓库抽出的运行组件，不使用 Effect/Tokio/Cordis，不调用 LLM，不执行工具进程，不测 OS 沙箱。它们不能作为产品缺陷或性能成绩的证明。
+本仓库保留 v3 编写的 22 项 Python 标准库确定性测试，实际运行结果见机器报告。它们全部是独立编写的教学模型，不是从三个仓库抽出的运行组件，不使用 Effect/Tokio/Cordis，不调用 LLM，不执行工具进程，不测 OS 沙箱。它们不能作为产品缺陷或性能成绩的证明。
 
 ## 2. 实验 A：在途上限与待提交结果
 
@@ -39,7 +39,7 @@
 |---|---|---|
 | busy / doorbell | 特定最后检查与 idle 间的唤醒反例 | 完整 Effect coordinator 状态空间 |
 | 请求快照 / 实时许可 | schema 一致性不等于当前授权 | 所有权限与撤销实现 |
-| 旧对象 / goal revision | 相同 ID 下旧生命周期或旧版本不同 | 分布式 lease、fencing、重启 |
+| 旧对象 / goal revision | 对象身份或 revision 元组不同 | 没有模拟旧回调执行及拒绝；不证明状态更新安全 |
 | 插件 naive undo / replay | A/B 覆盖后撤销 A 的反例 | 插件 transform 纯度、实际 Supervisor |
 | load-error / blocked | 保留旧版与政策禁止语义不同 | 所有 blocked 来源和管理策略 |
 | independent feed | 慢订阅者可以单独失败 | HTTP、socket、线程、真实背压 |
@@ -49,6 +49,8 @@
 | round 数 / token 数 | 相同轮数不能决定总 token | 真实模型 tokenization 与计费 |
 | checkpoint refusal | 明确 gate 可阻止抽象 body | fsync/文件系统/崩溃一致性 |
 
+还有几项只是便于手算的例子：数组复制成本用计数求和表示，重放示例只保留给定顺序，请求快照示例使用字典复制。它们能帮助理解条件，但没有执行真实投影器、重放引擎或权限撤销流程。Surface replacement 的缓存失效、过期回调是否被拒绝，需查看主笔记所引用的上游实现与测试；本仓库小模型未覆盖这些完整行为。
+
 ## 6. 复现
 
 ```bash
@@ -56,7 +58,7 @@ python3 -m unittest discover -s tests -p 'test_design_mechanisms.py' -v
 python3 scripts/run_mechanism_models.py --report /tmp/mechanism-models.json
 ```
 
-全部仓库测试另外包含 7 项原核验器测试和 4 项构建器测试，共 33 项；三类测试目的不同，不能把总数写成“33 项 Agent 测试通过”。
+全部仓库测试还包含源码核验器与构建器的回归测试，数量随维护变化。三类测试目的不同，不能把总数写成“Agent 测试通过”。
 
 ## 7. 真实上游验证矩阵：全部待运行
 
@@ -71,4 +73,4 @@ python3 scripts/run_mechanism_models.py --report /tmp/mechanism-models.json
 | Persistence | 各检查点崩溃、双 writer、租约、外部结果未知 |
 | Observability | 日志/实时/导出三通路、缺口、去重、脱敏、实际 RSS |
 
-这些实际实验尚未做。每篇已给出具体失败窗口与断言，后续应在隔离工作区运行，并标记 PASS/FAIL/SKIPPED/INCONCLUSIVE，不能用模型最终自述完成代替验收。
+这些实际实验尚未做。主笔记与重读记录给出相关实现、上游测试入口和待验证边界；真正动手时应补齐故障注入与断言，在隔离工作区运行，并标记 PASS/FAIL/SKIPPED/INCONCLUSIVE，不能用模型最终自述完成代替验收。

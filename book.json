@@ -1,0 +1,12 @@
+{
+  "title": "Agent Learning Notes",
+  "description": "Codex、OpenCode 与 DeepSeek Harness 的架构与执行机制",
+  "language": "zh-hans",
+  "honkit": ">=6.2.2",
+  "plugins": ["-sharing", "-lunr", "-search", "search-plus", "notes"],
+  "pluginsConfig": {
+    "theme-default": {
+      "showLevel": false
+    }
+  }
+}

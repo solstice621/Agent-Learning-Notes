@@ -2,8 +2,11 @@
 """Run independently authored teaching models and write an honest scoped report."""
 from __future__ import annotations
 import argparse
+import hashlib
 import json
+import subprocess
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 
 
@@ -14,8 +17,18 @@ def main() -> int:
     root = Path(__file__).resolve().parents[1]
     suite = unittest.TestLoader().discover(str(root / 'tests'), pattern='test_design_mechanisms.py')
     result = unittest.TextTestRunner(verbosity=2).run(suite)
+    inputs = {name: hashlib.sha256((root / name).read_bytes()).hexdigest()
+              for name in ['tests/test_design_mechanisms.py', 'scripts/run_mechanism_models.py']}
+    try:
+        head = subprocess.run(['git', 'rev-parse', 'HEAD'], cwd=root, check=True,
+                              text=True, capture_output=True).stdout.strip()
+    except (OSError, subprocess.CalledProcessError):
+        head = None
     report = {
         'status': 'PASS' if result.wasSuccessful() else 'FAIL',
+        'generated_at_utc': datetime.now(timezone.utc).isoformat(timespec='seconds'),
+        'notes_head': head,
+        'input_sha256': inputs,
         'tests_run': result.testsRun,
         'failures': len(result.failures),
         'errors': len(result.errors),

@@ -1,51 +1,82 @@
-# OpenCode 05｜为什么插件卸载要重新计算状态，坏更新又不应一律保留旧版本？
+# OpenCode 05｜插件管理：状态重算与更新失败处理
 
-## 1. 问题：插件修改的不是一张静态功能表
+假设模型原名叫 X，插件 A 把它改成 A，插件 B 又改成 B。现在卸载 A：如果 A 执行“恢复成 X”，仍在工作的 B 就被覆盖了。
 
-模型目录可以来自配置、远程数据和认证状态；插件可随运行加载、更新或移除。朴素实现让每个插件直接修改全局对象，卸载时“把它改过的字段改回来”。当多个插件覆盖相同字段，这种逆操作可能错误恢复过时值。
+**更可靠的办法是：保留仍有效的修改，按原顺序重新算一遍。** 插件更新出错时，再根据出错阶段决定保留还是撤下。
 
-官方历史决策记录比较过 Config transforms 与 Catalog transforms，明确选择后者；当前生命周期则应看 PluginSupervisor，而不是把历史接口草图当作当前 API。[A1][F1]
+这套机制位于项目实例内部。`PluginSupervisor` 决定本次应该启用哪些插件，`Plugin` 管理它们的加载和清理，`State` 根据插件登记的修改生成工具、命令等领域状态。可以把它理解为：先决定谁在场，再计算它们合起来提供什么。
 
-## 2. 决策 O05-D1：为什么重放贡献比让每个插件自己 undo 更可控？
+<!-- decision: O05-D1 | 卸载后怎样保住其他插件的修改？ -->
+## 卸载插件后的状态重算
 
-**分析例子：** 基线名称 X，插件 A 改为 A，插件 B 再改为 B。卸载 A 时若它执行“恢复 X”，会覆盖仍有效的 B。与其要求每个插件理解后续覆盖，不如从基线重放当前有效贡献，重新产生最终状态。
+插件登记的是一段修改步骤，源码叫 `transform`。每次需要重建，`State` 都先创建新对象，再顺序执行仍有效的步骤：
 
-官方选定 Catalog transforms 的直接理由是：允许任意 Config transform 修改任何配置，会让系统无法安全判断只重载某一域是否够用，可能需要全服务 reload；将变化限制在 Catalog 后，可将重建职责放回 Catalog。[A1]
+<!-- annotated-source: https://github.com/anomalyco/opencode/blob/60a212c0769acd96b446acbadeb790486830f91d/packages/core/src/state.ts#L172-L184 -->
+```ts
+  const get = () => {
+    // 笔记：没有变化时直接复用已算好的状态，避免每次读取都重放插件。
+    if (closed || !dirty) return state
+    while (true) {
+      const started = version
+      // 笔记：重建从全新初始值开始，剩余修改依次重放；不在旧读者持有的对象上撤销修改。
+      const next = options.initial()
+      const editor = options.editor(next)
+      for (const transform of transforms) {
+        try {
+          transform.run(editor)
+        } catch (cause) {
+          if (!transform.group) throw cause
+          // 笔记：有分组的插件失败时撤下整组贡献；后续版本检查会丢弃这一半成品并重建。
+          disable(transform.group, { state: options.name ?? "anonymous", cause })
+        }
+```
 
-| 方案 | 优势 | 成本或反例 |
-|---|---|---|
-| 插件直接修改＋自行 undo | 简单场景代码少 | 叠加覆盖和卸载顺序容易破坏状态 |
-| 任意 Config transform＋全局 reload | 一个统一扩展入口 | 变化影响面过大、就绪震荡 |
-| 域内 transform＋重放有效贡献 | 撤销可重新计算、影响域明确 | 顺序、重建、diff 发布需要协议 |
-| 插件独立进程＋纯协议 | 隔离更强 | 状态同步、序列化、故障管理更复杂 |
+回到例子：卸载 A 后，重新从 X 开始，只执行 B，结果仍然是 B。关闭插件的资源作用域时，它登记的步骤会被删除，下一次重建自然就不再包含它。旧读者已经拿到的对象也不会被原地改写。
 
-重放不是天然免费：插件 transform 若不纯、含外部副作用，重复运行会有不同效果；变化频繁还可能造成重建放大。历史文档也指出 Catalog 重建的 debounce 不会从 transform API 自动出现，需额外协调。[A1]
+重新算有成本。因此注册表会保留开头连续未变的插件，只清理并重新加载从第一个变化位置往后的部分。即使 B 自己没更新，只要前面的 A 变了，B 也可能重载，以保住修改顺序。`State.batch` 则把这段过程中重复的变化通知合并起来；它没有替任意外部操作提供回滚。
 
-## 3. 决策 O05-D2：为什么普通更新失败保留旧 generation，而明确 blocked 不应如此？
+这里最重要的写法约束是：修改步骤要能重复执行。把“发送邮件”放进 `transform`，每次重算都可能再发一封。
 
-Supervisor 对新 revision 加载失败记录独立失败，并保留先前运行 generation；重复 ID 也不会让整代内建插件一起丢失。但 `blocked` 分支会撤销先前包的启用与记录。[F1]
+<!-- decision: O05-D2 | 新插件坏了，什么时候还能继续用旧版？ -->
+## 加载失败与策略禁用的处理差异
 
-**推导：** “新版坏了”与“政策不允许这个插件继续”是不同事件。对前者 last-known-good 提高可用性；对后者继续使用旧版可能违背禁用意图。不能将保留旧版本作为所有错误通用恢复策略。
+设 v1 正常，刚保存的 v2 有语法错误，连模块都无法导入。Supervisor 会记录失败，并把已运行版本放回本次启用名单：
 
-时间线：t0 A_v1 活跃；t1 A_v2 导入失败；保持 v1 是一种合理降级。若 t1 是明确禁止 A，则保留 v1 不是降级，而是绕过当前政策。具体 blocked 的全部来源尚需继续审计，本篇只依已读分支说明二者在实现中被区分。
+<!-- annotated-source: https://github.com/anomalyco/opencode/blob/60a212c0769acd96b446acbadeb790486830f91d/packages/core/src/plugin/supervisor.ts#L79-L90 -->
+```ts
+    // 笔记：这是新版模块加载失败分支；明确被策略禁用的 blocked 分支在此前单独处理。
+    if ("error" in plugin) {
+      failures.set(operation.target, {
+        source: pluginSource(operation.target),
+        state: { status: "failed", error: plugin.error, ref: plugin.ref },
+        features: { server: true },
+      })
+      // The new revision never became a generation, so the one already running keeps its place.
+      // 笔记：新版尚未成为运行版本，先找仍可保留的旧版；从未成功加载过则没有回退对象。
+      const retained = packages.get(operation.target) ?? running.get(operation.target)
+      if (!retained) continue
+      packages.set(operation.target, retained)
+      enabled.add(retained.id)
+      continue
+```
 
-generation 编号还用于拒绝过期异步更新结果。observed/hold 则使变更即使被 sliding queue 合并，也不会在激活未完成时误报 ready。[F1] 这些各自防止不同竞争，不能笼统叫“缓存”。
+这段保留的是“新版还没加载起来”的情况。继续往下追，普通初始化失败时，注册表也会尝试重新加载旧版；但如果是修改步骤在重放时抛错，系统会撤下该插件整组贡献，避免留下改到一半的状态。
 
-## 4. 卸载的隐藏成本：旧请求还拿着旧能力
+还有一种更直接的撤下：策略已经禁止使用这个插件。模块加载器会先检查 `integration.use`，命中禁止规则就返回 `blocked`，Supervisor 不把旧版放回名单。这次重读确认了具体来源，而不只是从变量名猜“可能被禁用”。相关分支见[加载器](https://github.com/anomalyco/opencode/blob/60a212c0769acd96b446acbadeb790486830f91d/packages/core/src/plugin/module.ts#L49-L60)。
 
-请求捕获工具值能保证声明与执行一致，但也意味着新 generation 激活后，旧请求可能仍持有旧工具。资源清理必须与依赖服务关闭有明确顺序；Supervisor 为 registry.close 安排 finalizer。[F1]
+所以，“更新失败就继续用旧版”太宽泛。需要分别处理导入失败、初始化失败、重放失败和明确禁用。
 
-**研究边界：** 这段源码不能证明全部 registry 内部的热卸载都能等待所有活动调用。应该继续追踪 Scope 和请求快照的实际引用关系。对必须立即撤销的能力，更新逻辑还需要实时拒绝或取消，而不是只等待对象最终回收。
+## 适用条件与实现成本
 
-是否值得热更新？短命单次 CLI 可以直接重启，以明显更低的复杂度获得配置一致性；长期多 Session 服务不能随意停机时，代际与就绪屏障才更有价值。学习成熟系统不等于默认复制它所有热重载能力。
+一次运行就退出的小工具，修改插件后重启通常已经够用。长期服务需要热更新，才值得支付重建、顺序维护、旧资源清理和失败隔离的成本。
 
-## 5. 验证与自测
+**小自测：** A、B 依次覆盖同一个名字，卸载 A 后应该显示什么？如果 B 被策略禁用，可以用“保留旧版”维持它吗？
 
-本仓库机制实验构造 A/B 覆盖后卸载 A，比较 naive undo 与 replay 的结果，属于自建模型，不是 PluginSupervisor 测试。
+<details>
+<summary>展开答案</summary>
 
-**上游实验待运行：** 有效 v1 → 无法加载 v2 → 明确 blocked 三步比较；配置突发中让旧检查结果晚到，确认不会覆盖新 generation；工具执行中禁用插件，检查旧工作、新请求和资源回收分别怎样变化。
+仍显示 B，因为只重放剩余修改。B 被禁用后应退出当前启用名单；保留旧版适用于特定加载失败，不能绕过禁用。
 
-读后应能回答：哪些变化适合保留旧版，哪些需要 fail-closed；撤销操作是逆修改还是重建有效贡献；为了热更新究竟增加了哪些所有权和同步成本。
+</details>
 
-[A1]: https://github.com/anomalyco/opencode/blob/60a212c0769acd96b446acbadeb790486830f91d/specs/v2/catalog-config-plugin-lifecycle.md
-[F1]: https://github.com/anomalyco/opencode/blob/60a212c0769acd96b446acbadeb790486830f91d/packages/core/src/plugin/supervisor.ts#L1-L270
+> 证据边界：已读实现及卸载、失败回退、组织策略变化的上游测试，未运行。历史 Catalog 方案只帮助理解动机；这里按当前 `State` 与插件注册表讲解。

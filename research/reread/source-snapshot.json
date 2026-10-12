@@ -1,0 +1,33 @@
+{
+  "source": "GitHub codeload archives at pinned commits",
+  "repositories": [
+    {
+      "repository": "openai/codex",
+      "commit": "a9b0815167c27ab13719dd12d13b63e02b70d221",
+      "directory": "codex",
+      "url": "https://codeload.github.com/openai/codex/tar.gz/a9b0815167c27ab13719dd12d13b63e02b70d221",
+      "archive_sha256": "f9aa13ee862527759d10674ea7f8d784815142fcd847d6e99be278a90a3f87ad",
+      "archive_bytes": 17431633,
+      "retrieved_at_utc": "2026-10-12T11:50:23.458324+00:00"
+    },
+    {
+      "repository": "anomalyco/opencode",
+      "commit": "60a212c0769acd96b446acbadeb790486830f91d",
+      "directory": "opencode",
+      "url": "https://codeload.github.com/anomalyco/opencode/tar.gz/60a212c0769acd96b446acbadeb790486830f91d",
+      "archive_sha256": "1cd4d2aaf2fb44240fb22cdac00f18bdb0b56a8f5a4eaee9e5de422c8b7d34aa",
+      "archive_bytes": 79516702,
+      "retrieved_at_utc": "2026-10-12T11:50:25.519832+00:00"
+    },
+    {
+      "repository": "deepseek-ai/deepseek-harness",
+      "commit": "d743267388641bc76f17c45ce8b4c231aed1d32c",
+      "directory": "dsh",
+      "url": "https://codeload.github.com/deepseek-ai/deepseek-harness/tar.gz/d743267388641bc76f17c45ce8b4c231aed1d32c",
+      "archive_sha256": "414db357dda081d11d531ea3e9969f48fa0502809ff579396c3c2bbf7e109253",
+      "archive_bytes": 33986497,
+      "retrieved_at_utc": "2026-10-12T11:50:24.471094+00:00"
+    }
+  ],
+  "scope": "Entire archives obtained; research rereads selected architecture and source call chains, not every file."
+}

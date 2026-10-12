@@ -1,66 +1,55 @@
-# Agent Learning Notes｜设计研究版 v3
+# Agent Learning Notes｜架构与执行机制
 
-**Codex CLI × OpenCode × DeepSeek Harness｜24 篇主笔记｜48 项设计决策｜70 段原文源码**
+这套笔记研究 Codex、OpenCode 和 DeepSeek Harness 的整体架构，以及它们如何接收任务、调用模型、执行工具和恢复工作。每个项目先用一篇架构解析建立模块与调用链地图，再用八篇专题解释具体机制，源码旁附中文注释。
 
-本版不以变量解释为主线，而从真实问题、约束和简单替代方案出发：为什么需要当前结构，不这样做会怎样，付出了哪些代价，哪些前提改变后应选择另一种实现。每篇随后保留核心源码与逐段讲解，所有引用固定版本。
+**第一次读，从 [Agent 架构导览](START_HERE.md) 开始，再选一个项目的整体架构篇。** 先看入口、模块职责与一次任务的完整流转，再沿专题进入实现。熟悉一个项目后，再横向比较另外两个。
 
-## 学习目录
+**[在线阅读网站](https://solstice621.github.io/Agent-Learning-Notes/) · [直接进入架构导览](https://solstice621.github.io/Agent-Learning-Notes/START_HERE.html)**
 
-| 专题 | Codex CLI | OpenCode | DSH |
+网站提供目录、中文搜索和流程图，手机和电脑均可阅读。想在本地阅读，参照 [本地 GitBook 阅读说明](LOCAL_BOOK.md)，运行 `npm run book:serve`。
+
+## 研究主题与章节导航
+
+| 你想弄清什么 | Codex | OpenCode | DSH |
 |---|---|---|---|
-| 01 Agent Loop | [输入接纳与请求快照](codex/01-agent-loop.md) | [运行协调与丢失唤醒](opencode/01-agent-loop.md) | [信息注入与工作授权](dsh/01-agent-loop.md) |
-| 02 Context / Session | [摘要与确定性重建](codex/02-context-session.md) | [准备前提与上下文失效](opencode/02-context-session.md) | [事件视图与缓存剩余成本](dsh/02-context-session.md) |
-| 03 Tool / Sandbox | [取消结算、并发与隔离](codex/03-tools-sandbox.md) | [工具捕获与结果表示](opencode/03-tools-sandbox.md) | [顺序提交与结果积压](dsh/03-tools-sandbox.md) |
-| 04 LLM / Streaming | [连接、续接与认证归属](codex/04-llm-streaming.md) | [已提交状态与重试预算](opencode/04-llm-streaming.md) | [尝试结算与在途丢失窗口](dsh/04-llm-streaming.md) |
-| 05 Extension / Plugin | [类型化贡献与准入](codex/05-extension-architecture.md) | [贡献重放与插件代际](opencode/05-extension-architecture.md) | [能力世界与迟到资源](dsh/05-extension-architecture.md) |
-| 06 Task / Multi-Agent | [身份、驻留和父归属](codex/06-task-orchestration.md) | [接纳、执行与交付](opencode/06-task-orchestration.md) | [目标、授权与版本围栏](dsh/06-task-orchestration.md) |
-| 07 Persistence / Reliability | [ACK、检查点与恢复资格](codex/07-persistence-reliability.md) | [write-ahead 意图与停止语义](opencode/07-persistence-reliability.md) | [Handle 所有权与副作用前 Flush](dsh/07-persistence-reliability.md) |
-| 08 Observability / Evaluation | [原始证据与离线解释](codex/08-observability-evaluation.md) | [独立故障域与事件交付](opencode/08-observability-evaluation.md) | [脱敏、交接游标与缺口](dsh/08-observability-evaluation.md) |
+| 系统由哪些模块组成，一次任务如何贯穿它们？ | [00 整体架构](codex/00-architecture.md) | [00 整体架构](opencode/00-architecture.md) | [00 整体架构](dsh/00-architecture.md) |
+| 任务正在运行，新消息怎么办？ | [01 输入与循环](codex/01-agent-loop.md) | [01 输入与循环](opencode/01-agent-loop.md) | [01 输入与循环](dsh/01-agent-loop.md) |
+| 聊天记录怎样变成模型的上下文？ | [02 上下文](codex/02-context-session.md) | [02 上下文](opencode/02-context-session.md) | [02 上下文](dsh/02-context-session.md) |
+| 工具怎样开始、并发和停止？ | [03 工具](codex/03-tools-sandbox.md) | [03 工具](opencode/03-tools-sandbox.md) | [03 工具](dsh/03-tools-sandbox.md) |
+| 模型请求、流式输出与后续请求怎样衔接？ | [04 连接与增量请求](codex/04-llm-streaming.md) | [04 断流与重试](opencode/04-llm-streaming.md) | [04 流与尝试记录](dsh/04-llm-streaming.md) |
+| 换插件时，旧任务和资源怎么办？ | [05 扩展](codex/05-extension-architecture.md) | [05 扩展](opencode/05-extension-architecture.md) | [05 扩展](dsh/05-extension-architecture.md) |
+| 子任务和长期目标由谁负责？ | [06 编排](codex/06-task-orchestration.md) | [06 编排](opencode/06-task-orchestration.md) | [06 编排](dsh/06-task-orchestration.md) |
+| 重启以后，系统靠什么继续？ | [07 保存与恢复](codex/07-persistence-reliability.md) | [07 保存与恢复](opencode/07-persistence-reliability.md) | [07 保存与恢复](dsh/07-persistence-reliability.md) |
+| 任务出错，怎样找出发生了什么？ | [08 观测](codex/08-observability-evaluation.md) | [08 观测](opencode/08-observability-evaluation.md) | [08 观测](dsh/08-observability-evaluation.md) |
 
-**研究入口：** [48 项决策索引](DESIGN_INDEX.md) · [研究方法与证据等级](RESEARCH_METHOD.md) · [新增直接证据](RESEARCH_EVIDENCE.md) · [横向研究结论](RESEARCH_FINDINGS.md) · [机制实验与验证矩阵](RESEARCH_EXPERIMENTS.md) · [本轮修正记录](RESEARCH_CHANGELOG.md)
+每篇末尾有一道自测及参考答案。读完一组后，可用 [三项目执行机制对比](COMPARISON.md) 整理差异，再做 [阅读与练习](LABS.md) 中的迁移题。想按具体问题检索，查 [48 个问题索引](DESIGN_INDEX.md)。
 
-原源码索引与学习路线仍在 [SOURCES.md](SOURCES.md)、[LABS.md](LABS.md)，旧版架构比较与路径差异仍可查 [COMPARISON.md](COMPARISON.md)、[ERRATA.md](ERRATA.md)。设计层的新结论和边界以本轮研究记录为准，原始版本保留在 Git 历史中。
+## 研究范围与版本说明
 
-## 每篇的组织方式
+当前版本包含 **3 篇整体架构 + 24 篇机制专题**。整体架构说明模块如何协作、数据保存在哪里、谁负责执行与收尾；专题继续覆盖原来的 48 个问题。研究依据是三个项目的固定源码，包含入口、调用者、核心实现、相关组件与测试阅读。
 
-先给一个不需要复杂架构的简单实现，再说明新增需求制造了什么矛盾；深入两项带编号的设计决策，比较候选方案与反事实；讨论代价、适用条件和反证；最后回到固定源码和实验。候选方案除明确引自作者记录外，均是研究比较，不冒充维护者实际讨论史。
+代码中的 `// 笔记：` 是本笔记新增的中文注释，其余代码保留上游原文。核验时仅去掉这些显式注释，再与固定源码逐行比较；教学伪代码会单独标明，不混作原文。源码摘录通常不是完整可运行文件。
 
-70 段源码从上一版完整保留，代码、缩进、定位范围与顺序由构建器检查。研究源稿位于 `research/decisions/`，它们用于生成 24 篇主笔记，不是额外 24 篇新的源码课程。修改设计论证后运行构建器，避免主笔记与源稿不同步。
+这轮研究也修正了一些旧解释，例如 Codex 的关闭准入、跨轮连接复用，以及 OpenCode 不同插件更新失败的处理。具体证据见 [重读记录](research/reread/README.md)。
 
-## 固定基线
+当前成果是源码研究和本仓库的教学模型。上游测试做了阅读，未在本轮运行；没有真实模型质量或性能排名。验证结果见 [验证说明](validation/README.md)。
 
-| 项目 | 完整 Commit |
-|---|---|
-| openai/codex | `a9b0815167c27ab13719dd12d13b63e02b70d221` |
-| anomalyco/opencode | `60a212c0769acd96b446acbadeb790486830f91d` |
-| deepseek-ai/deepseek-harness | `d743267388641bc76f17c45ce8b4c231aed1d32c` |
+<details>
+<summary>研究来源与维护方式</summary>
 
-研究日期：2026-10-12；上一版笔记基线：`69577b8d1dc34b052090b43206faa9fcd2c597b2`。源码基线不滚动，避免把版本变化与设计解释混为一谈。它们是研究快照，不是推荐安装版本，也未验证发行版二进制等价。机器记录见 [source-lock.json](source-lock.json)。
+- [源码入口](SOURCES.md) · [固定版本](source-lock.json) · [证据方法](RESEARCH_METHOD.md)
+- [重要修正](RESEARCH_EVIDENCE.md) · [跨主题理解](RESEARCH_FINDINGS.md) · [修订记录](RESEARCH_CHANGELOG.md)
+- [教学模型及验证范围](RESEARCH_EXPERIMENTS.md) · [勘误](ERRATA.md) · [第三方许可](THIRD_PARTY_NOTICES.md)
 
-## 实际验证的四个层次
-
-| 层次 | 方法 | 不证明什么 |
-|---|---|---|
-| 原文源码一致性 | `verify_notes.py` 联网逐行匹配 70 段、检查链接与 SHA | 不证明设计动机与全部运行行为 |
-| 设计版生成完整性 | `build_design_edition.py --check` 检查 24 篇、48 决策、原文保留与生成文本一致 | 不会自动判定论证正确 |
-| 自建机制实验 | 22 项确定性 Python 教学模型 | 不是三个上游 Agent 的测试或性能基准 |
-| 文档工具测试 | 原核验器 7 项＋构建器 4 项 | 不验证模型、数据库、OS 沙箱 |
-
-实际结果以 [validation](validation/README.md) 内机器报告和 [GitHub Actions](https://github.com/solstice621/Agent-Learning-Notes/actions) 为准。主笔记里的上游实验仍是 **NOT RUN**。本轮没有编译上游 Agent、发起真实模型请求、测量端到端性能、执行沙箱攻击测试或验证多节点接管。
+专题修改 `research/decisions/` 中的源稿；整体架构直接编辑各项目的 `00-architecture.md`。然后运行：
 
 ```bash
-# 需要包含上一版基线的本仓库 Git 历史；浅克隆需先获取该历史。
 python3 scripts/build_design_edition.py
 python3 scripts/build_design_edition.py --check
 python3 -m unittest discover -s tests -v
-python3 scripts/run_mechanism_models.py --report /tmp/mechanism-models.json
 python3 scripts/verify_notes.py --report /tmp/source-excerpts.json
 ```
 
-在线匹配失败必须报告失败；`--structure-only` 只检查结构，不能称为源码验证通过。CI 的长期校验工作流仅有读取权限。
+构建器保留源稿中的讲解与代码顺序，不再拼接旧版全文，也不要求克隆旧 Git 历史。源码核验需要网络；离线结构检查使用 `--structure-only`，它不检查源码内容。
 
-## 面向 Agent Infrastructure 的学习目标
-
-读完以后应能脱离函数名，解释要解决的故障窗口、状态归属、可重做范围、授权、资源预算和交付保证；还应能判断什么时候不需要复制这些复杂设计。推荐先横向读 01/03/04，再读 02/07，最后研究 05/06/08。
-
-源码按原许可保留归属，见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。本项目不是上游官方文档，不保存私人会话、客户代码、凭证或原始执行轨迹。
+</details>

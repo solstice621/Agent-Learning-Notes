@@ -1,51 +1,77 @@
-# OpenCode 01｜为什么输入接纳、运行协调、Step 与 Attempt 要各有边界？
+# OpenCode 01｜执行循环：持久输入与唤醒协调
 
-## 1. 从一个 HTTP 请求里完成全部工作会怎样？
+你让 Agent 修测试。它快做完时，你又补了一句：“也检查一下空输入。”如果服务器因为“这个会话正在忙”就忽略这次通知，旧任务可能恰好退出，补充要求便一直躺在队列里。
 
-最简单的服务端 Agent 是：收到 prompt → 调模型 → 执行工具 → 返回结果。短任务且客户端连接可靠时，它清晰有效。问题出现在客户端断连、同会话重复提交、运行中 steer、插件/Location 重载，以及清理期间又到达新任务。
+**OpenCode 把“记下用户说了什么”和“提醒执行器来取”分开：消息保存在数据库里，提醒可以合并，但不能被忙碌状态吞掉。**
 
-当前 Core 把 SessionExecution、SessionRunner、runStep、SessionStep.attempt 分开。[F1][F2][F3] 不能仅用“解耦”解释这些层次；应说明每层分别拥有哪个不能交给别人猜测的事实。
+先看它在项目中的位置：界面把输入交给 HTTP 接口；Core 的 Session 操作负责保存输入；执行协调器安排同一会话依次运行；Runner 再负责模型与工具的循环。页面连接并不直接拥有这个循环。
 
-## 2. 决策 O01-D1：为什么 durable input 与 wake 不是同一件事？
+<!-- decision: O01-D1 | 忙的时候收到新消息，怎样保证稍后还会处理？ -->
+## 持久收件箱与唤醒信号
 
-输入记录表达“系统接受了什么”；wake 表达“请检查是否有工作”。重复 wake 可以合并，但不同输入不能因为只剩一个 wake 就丢掉。运行协调器按 Session key 串行，相互独立的 key 则允许并发。[F4]
+[Session.prompt](https://github.com/anomalyco/opencode/blob/60a212c0769acd96b446acbadeb790486830f91d/packages/core/src/session/session.ts#L145-L175)先做输入去重和准备，再写入待处理队列，最后调用 `wake`。即使设置 `resume: false`，消息仍会保存，只是不启动执行。重复请求若使用相同消息 ID，也不会再插入一条用户输入。
 
-**源码里的直接理由：** `pendingWake` doorbell 关闭“drain 最后一次检查没有工作”与“切换 idle”之间的缝隙。[F4] 具体竞争是：t0 drain 认为无 eligible work；t1 新输入到达并 wake；t2 旧执行结束。如果 t1 只发现已经 busy 然后直接返回，t2 可能清掉 busy 后无人再启动，新输入就滞留。保留 pendingWake，使当前 drain 再查一次或由 settle 启动 successor。
+`wake` 可以理解为门铃。有人在工作时，门铃只需留下“还有事”的记号；实际内容仍在队列中。
 
-| 候选方案 | 优点 | 不足或适用限制 |
-|---|---|---|
-| 每个请求开一个新 Loop | 实现简单 | 同 Session 可同时消费/更新历史 |
-| 只用 busy 布尔值忽略重复 wake | 避免双启动 | idle 转换窗口可能丢失唤醒 |
-| 永久轮询数据库 | 不依赖精确唤醒 | 延迟与扫描成本；仍需串行归属 |
-| durable inbox＋可合并 doorbell | 内容与执行通知分离 | 必须处理 stopping、settlement 和 successor |
+<!-- annotated-source: https://github.com/anomalyco/opencode/blob/60a212c0769acd96b446acbadeb790486830f91d/packages/core/src/session/run-coordinator.ts#L136-L145 -->
+```ts
+    const wake = (key: Key, scope: Promotable = "input") =>
+      Effect.sync(() => {
+        // 笔记：此协调器内，同一会话只保留一个执行者；新消息已另存于收件箱，这里只处理唤醒。
+        const execution = executions.get(key)
+        if (execution !== undefined) {
+          // Coalesced wakes keep the widest scope: "input" subsumes "steer".
+          // 笔记：合并提醒时保留更宽的 input 范围，避免后来的 steer 提醒缩小待处理范围。
+          execution.pendingWake = execution.pendingWake === "input" ? "input" : scope
+          return
+        }
+        // 笔记：空闲时创建执行者；真正处理在异步执行中进行，wake 不等待任务结束。
+        start(key, false, scope)
+      })
+```
 
-这些比较中，doorbell 的具体动机有代码注释支持；其余方案的得失是研究推导。这里是本进程调度，不是跨节点 exactly-once 队列。
+关键是 `pendingWake`：当前循环结束前会检查它。若提醒来得更晚，落在清理阶段，[收尾函数](https://github.com/anomalyco/opencode/blob/60a212c0769acd96b446acbadeb790486830f91d/packages/core/src/session/run-coordinator.ts#L114-L120)还会据此启动下一次执行。因此，“已检查过队列”与“进入空闲”之间的新消息也有人接手。
 
-## 3. 决策 O01-D2：为什么一个 Step 需要多个 Attempt，而不是重启整个 Turn？
+最简单的 `if (busy) return` 少了这个记号。定时扫描队列也能补救，但会增加等待和扫描成本。这里选择的是一个进程内、按会话串行的协调器；不同会话仍能并发。
 
-Runner 拥有逻辑策略：输入在何时 promote，压缩是否必要，是否达到最大步骤，以及 Location 改变怎样继续。Attempt 拥有一次模型流、由它引发的工具和终态结算。[F2][F3]
+<!-- decision: O01-D2 | 请求失败时，究竟重做哪一段？ -->
+## Turn、Step 与 Attempt 的执行层次
 
-**反事实：** 第一次请求在任何输出前连接失败。若重启整个 prompt admission，可能重复提升输入或让后来排队消息提前进入同一逻辑工作；若只在 HTTP 客户端无限重发，又可能忽略已提交输出和工具副作用。逻辑 Step 与物理 Attempt 分开，使重试只重复应该重复的部分。
+一次正常执行可以这样跟：递送用户消息 → 向模型提问 → 执行它提出的工具 → 保存结果 → 把结果交给模型继续。这里的一轮模型工作叫 Step；其中一次真实请求和它带出的工具处理叫 Attempt。
 
-Outcome 的 Retry、Continue、RecoverFull、Compacted 并非几个近义词。它们让“原请求还没发生有效输出”“已经有输出需继续”“续接状态失效需完整恢复”“上下文需要改变”成为可分支的决策。[F3] 但类型存在不等于所有 provider 行为都被证明，仍需各 adapter 的协议测试。
+假设连接在输出前失败，只需要重试这个 Step。若重新从入口提交“修测试”，就把已接纳的工作又提交了一遍。Runner 因而把重试放在内层：重新准备请求，却不再次递送待处理消息。
 
-为何不拆更多层？每增加一层就增加接口、错误传播和状态传递。当前分层之所以值得研究，是每层有独立重试/取消/所有权边界，而不只是文件变小。一个固定工作流可能不需要 Location reload 或 steer，完全可以合并部分层次。
+<!-- annotated-source: https://github.com/anomalyco/opencode/blob/60a212c0769acd96b446acbadeb790486830f91d/packages/core/src/session/runner/llm.ts#L206-L217 -->
+```ts
+    const runStep = Effect.fn("SessionRunner.runStep")(function* (first: SessionContext.Loaded, step: number) {
+      const sessionID = first.session.id
+      let assistantMessageID = SessionMessage.ID.create()
+      // 笔记：重试策略属于当前 Step，循环内的各次 Attempt 共用其次数和等待状态。
+      const retry = yield* SessionRunnerRetry.make(bus, sessionID)
+      let initial: SessionContext.Loaded | undefined = first
+      let recoverOverflow = true
+      let recoverContinuation = true
+      while (true) {
+        // Reuse boundary preparation once; retries refresh context without delivering more input.
+        // 笔记：首轮复用已准备的上下文；重试刷新上下文，但不会再次从收件箱递送输入。
+        const loaded = initial ?? (yield* prepareContext(sessionID).pipe(Effect.flatMap(context.load)))
+        initial = undefined
+        const compacted = yield* compaction.compact({ reason: "auto", context: loaded })
+```
 
-## 4. 取消语义如何检验这个划分？
+`initial` 第一次使用已经准备好的上下文，之后重新加载；这段循环没有 `SessionInbox.promote`。递送输入发生在外面的步骤边界。工具完成、需要模型继续时，Runner 才进入后续 Step。
 
-Coordinator 的 interrupt 可以先确认接受，清理和 settled hook 后来完成；awaitSettlement 只等被中断的执行，awaitIdle 会跟随随后启动的 successor。[F4] 这不是 API 冗余：用户要尽快收到停止确认，资源管理器可能必须等旧任务清完，关闭服务则可能要等新任务也不再存在。
+这样做还让停止的含义更清楚：接受取消、旧执行清理完毕、整个会话空闲，是三个时刻。新输入在清理期间到达时，旧执行可以结束，后续执行接着工作。
 
-**分析：** “完成 Promise”必须命名其所等待的对象。用一个通用 done 同时代表收到取消、旧工作结束、整个会话闲置，会让并发调用方产生错误假设。尤其在清理期间新输入到达时，awaitIdle 可能比单次 settlement 长得多。
+代价是多了几层状态。只有一个调用者、没有排队和恢复要求的小脚本，可以先用一个循环；一旦允许运行中补充输入，就需要明确谁保存消息、谁接手它、失败后重做哪里。
 
-## 5. 验证与设计选择
+**想一想：** 同一会话收到两条不同消息，却只留下一个 `pendingWake`，会丢掉其中一条吗？
 
-**上游实验待运行：** 在 drain 最后检查与 idle transition 之间受控插入 wake，验证新任务不会搁置；在 cleanup 中加入新输入，对照 interrupt、awaitSettlement、awaitIdle 的完成时刻；同 Step 首次失败时确认没有重复 promote。
+<details>
+<summary>参考答案</summary>
 
-本仓库机制实验模拟 lost-wakeup 与保留 doorbell 的区别，只检查这个抽象窗口，不运行 OpenCode/Effect。上游验证还需断言原子区、取消和 hook 的真实调度。
+不会因为提醒合并而丢消息。两条输入各自持久保存，门铃只是要求重新检查队列；具体何时递送仍由 steer、queue 和控制项的顺序决定。
 
-**应能带走的判断：** 内容不应寄存在易丢失的通知里；运行串行化不等于禁止并发；logical work 与 physical attempt 分离，是为了限定重做和等待范围。不是所有 Agent 都要四层，但每个系统都必须回答这些范围。
+</details>
 
-[F1]: https://github.com/anomalyco/opencode/blob/60a212c0769acd96b446acbadeb790486830f91d/packages/core/src/session/execution.ts
-[F2]: https://github.com/anomalyco/opencode/blob/60a212c0769acd96b446acbadeb790486830f91d/packages/core/src/session/runner/llm.ts#L1-L280
-[F3]: https://github.com/anomalyco/opencode/blob/60a212c0769acd96b446acbadeb790486830f91d/packages/core/src/session/runner/step.ts#L1-L290
-[F4]: https://github.com/anomalyco/opencode/blob/60a212c0769acd96b446acbadeb790486830f91d/packages/core/src/session/run-coordinator.ts#L1-L245
+本篇重新阅读了入口、协调器、Runner 及[协调器测试](https://github.com/anomalyco/opencode/blob/60a212c0769acd96b446acbadeb790486830f91d/packages/core/test/session-run-coordinator.test.ts#L263-L280)；测试用受控等待制造收尾期间的新提醒。本轮未运行上游测试；这里也不包含跨进程唯一执行保证。

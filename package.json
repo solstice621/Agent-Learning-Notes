@@ -1,0 +1,21 @@
+{
+  "name": "agent-learning-notes",
+  "version": "4.0.0",
+  "private": true,
+  "description": "GitBook-style reading website for Agent Learning Notes",
+  "scripts": {
+    "book:build": "node scripts/build_book.mjs",
+    "book:serve": "node scripts/serve_book.mjs",
+    "book:check": "node scripts/check_book.mjs"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "devDependencies": {
+    "gitbook-plugin-search-plus": "1.0.4-alpha-3",
+    "honkit": "6.2.2",
+    "honkit-plugin-notes": "file:book-plugin",
+    "mermaid": "12.1.0",
+    "playwright-core": "1.64.0"
+  }
+}

@@ -1,47 +1,29 @@
-# 设计动机证据与本轮补查
+# 源码复核与关键结论修正
 
-[总目录](README.md) · [方法](RESEARCH_METHOD.md)
+[总目录](README.md) · [逐篇阅读记录](research/reread/README.md)
 
-## 1. 能直接归因给作者的新增材料
+这次重读的重点是把片段放回调用链。下面列出最影响理解的修正；具体文件、行号及相关测试在各批研究记录中。它们来自固定版本的静态阅读，上游测试未在本轮运行。
 
-| 材料 | 支持的具体理由 | 不支持的外推 |
+| 原解释容易造成的印象 | 重新核对后的解释 | 去哪里读 |
 |---|---|---|
-| [Codex PR #51556](https://github.com/openai/codex/pull/51556) | 中断不能丢掉动态工具终态；需要排除迟到模型上下文 | 所有子进程/所有工具平台都已无泄漏 |
-| [Codex 相关合并提交](https://github.com/openai/codex/commit/18e28fe1b96db7e1d6b13584bec37c41f71b8b0e) | 确认该变更背景与回归测试目标；2026-10-07 | 本轮运行过这些回归测试 |
-| [Codex timing 测试提交](https://github.com/openai/codex/commit/d4eed6dca57fc72298808aed5a4bfe43285bf98f) | direct/nested Code Mode 计时事件的重复计数需要断言 | 所有费用归因已准确 |
-| [OpenCode EventFeed 决策](https://github.com/anomalyco/opencode/blob/60a212c0769acd96b446acbadeb790486830f91d/specs/v2/event-stream-architecture.md) | 减少重复编码且维持每连接独立失败；共享 PubSub 的候选取舍 | 编码微基准可换算成端到端 Agent 提速 |
-| [OpenCode Catalog 历史决策](https://github.com/anomalyco/opencode/blob/60a212c0769acd96b446acbadeb790486830f91d/specs/v2/catalog-config-plugin-lifecycle.md) | 任意 Config transform 扩大 reload 范围，选域内 Catalog transform | 文中历史 API 草图就是当前 SDK |
-| [DSH Handle-based persistence 决策](https://github.com/deepseek-ai/deepseek-harness/blob/d743267388641bc76f17c45ce8b4c231aed1d32c/.agents/notes/implemented/architecture/2026-08-27-handle-based-session-persistence.md) | 归属隐式、修复职责混合、revision 重试使 ownership 无处安放 | ADR 当时标为 planned 的跨进程层已经被本轮验证 |
-| [DSH Attempt stream settlement 决策](https://github.com/deepseek-ai/deepseek-harness/blob/d743267388641bc76f17c45ce8b4c231aed1d32c/.agents/notes/implemented/architecture/2026-09-01-v2-embedded-assistant-streams.md) | 逐 chunk 顶层事件写放大；只存成功文本又丢证据；结算前硬故障丢流是明确代价 | payload 字节也只随 attempt 数增长，或 live stream 是 WAL |
+| Codex 新输入总要等到完整 Step 结束 | 常规队列有接纳边界；InstantInterrupt 路径还会监听并抢占，具体取决于配置与路径 | [Codex 01](codex/01-agent-loop.md) |
+| StepContext 冻结了请求所需的一切 | 设置和工具路由共享请求视图；环境访问仍会结合所属 Turn 的当前授权 | [Codex 01](codex/01-agent-loop.md) |
+| 每 Turn 新建客户端 Session，所以连接和续接基线也不跨 Turn | 连接状态可以取自缓存并在释放时归还；本轮路由令牌与跨轮连接复用要分开 | [Codex 04](codex/04-llm-streaming.md) |
+| TurnStartAdmission 是容量或配额准入 | 当前宿主实现用于平稳关闭：停止接受新工作，并等已获得许可的提交结束 | [Codex 05](codex/05-extension-architecture.md) |
+| 恢复会继续原来那个异步执行位置 | 恢复清单经过资格检查后，开启新的 continuation turn；JSONL 历史与 SQLite 查询投影职责不同 | [Codex 07](codex/07-persistence-reliability.md) |
+| OpenCode 文档中的重试数字可直接作为当前实现 | 同一固定版本的说明和实现存在差异；默认预算及 hook 覆盖以 retry 实现和 Runner 为准 | [OpenCode 04](opencode/04-llm-streaming.md) |
+| 工具文档说明的截断顺序和 metadata 上限都已实现 | 实际要追工具 hook、Step 中的截断和成功事件发布，不能只照文档描述推断 | [OpenCode 03](opencode/03-tools-sandbox.md) |
+| 所有插件更新失败都会保留旧代际 | 模块加载、setup、贡献重放和明确 blocked 的处理不同；贡献重放失败会隔离插件 | [OpenCode 05](opencode/05-extension-architecture.md) |
+| OpenCode 发布 durable 事件，默认就保存完整事件日志 | Bus 的事务更新会话投影和 claim；完整事件载荷由 `events.persist` 控制，默认未开启 | [OpenCode 架构](opencode/00-architecture.md)、[OpenCode 07](opencode/07-persistence-reliability.md) |
+| DSH inject 永远不会在运行中影响任务 | 它不会独立唤醒空闲 Agent；正在运行的 Turn 可在下一 Step 边界消化它 | [DSH 01](dsh/01-agent-loop.md) |
+| 本仓库教学模型已验证 Surface 替换和过期回调拒绝 | 现有小测试只覆盖计数/身份条件；行为证据另有上游测试源码，但本轮未运行 | [DSH 02](dsh/02-context-session.md)、[DSH 06](dsh/06-task-orchestration.md) |
+| committed end 说明流已经保存到磁盘 | 它说明会话接纳了结算事件；后续还有保存和 flush 的保证 | [DSH 04](dsh/04-llm-streaming.md)、[DSH 07](dsh/07-persistence-reliability.md) |
+| 持久化 ADR 提到的跨进程写锁仍只是计划 | 当前 JSONL 后端已有内核写锁；新建空会话的延迟落盘又带来首次写入时的检查边界 | [DSH 07](dsh/07-persistence-reliability.md) |
+| 遥测协调器默认 live，实际默认 OTel 就一直上传 | 实际 OTel 装配使用 on-demand：新提交的显式反馈授权采集相应前缀 | [DSH 08](dsh/08-observability-evaluation.md) |
+| DSH 的某个 profile 具备持久化，所以所有入口都有同样保证 | profile/bundles 选择服务组合；`sdk-minimal` 不继承 `base`，存储、检查点、遥测等要按实际装配核对 | [DSH 架构](dsh/00-architecture.md) |
 
-以上是选定记录，不是对全部 Issue/PR 历史的穷尽检索。没有发现直接动机的决策，正文保持设计推导身份。
+## 如何复核一个结论
 
-## 2. 本轮进一步核对的关键实现
+先打开对应主笔记，找出代码里的判断；再打开它末尾的重读记录，沿调用方与下游实现核对。若正文说“为什么这样设计”，还要看依据是作者明示理由，还是在给定条件下的分析。
 
-[OpenCode run-coordinator.ts](https://github.com/anomalyco/opencode/blob/60a212c0769acd96b446acbadeb790486830f91d/packages/core/src/session/run-coordinator.ts#L1-L245) 明确说明 pendingWake 防止 drain 与 idle transition 之间丢唤醒，以及 awaitSettlement/awaitIdle 的差别。
-
-[DSH tool-calls.ts](https://github.com/deepseek-ai/deepseek-harness/blob/d743267388641bc76f17c45ce8b4c231aed1d32c/packages/core/agent-loop/src/tool-calls.ts#L115-L260) 将 inFlight、slots、committed 分开；由此推导“在途有界不限制全部结果积压”。这是一项静态资源边界分析，不是测得的内存泄漏。
-
-[DSH Session 源码](https://github.com/deepseek-ai/deepseek-harness/blob/d743267388641bc76f17c45ce8b4c231aed1d32c/packages/core/session/src/index.ts#L790-L1015) 对输入快照/冻结，按 generation 决定投影缓存，并返回新外层数组；增量投影与完整数组复制的复杂度应分开。
-
-[DSH telemetry coordinator](https://github.com/deepseek-ai/deepseek-harness/blob/d743267388641bc76f17c45ce8b4c231aed1d32c/packages/session/session-telemetry/src/coordinator.ts#L1-L300) 的 per-event containment 与 handoff high watermark，可留下被后续成功记录越过的缺口；这是 best-effort 边界，不是自动定性为 bug。
-
-[DSH checkpoint-policy](https://github.com/deepseek-ai/deepseek-harness/blob/d743267388641bc76f17c45ce8b4c231aed1d32c/packages/session/session-checkpoint-policy/src/index.ts#L1-L100) 给出模型/顶层工具前的检查点；只有挂载且经过该路径时才能依赖，不能推广到任意 profile。
-
-## 3. 延续的固定源码证据
-
-各主笔记保留上一版全部 70 个原文代码块及其定位链接；涉及 client、compact、extension registry、spawn、ThreadStore、execution、step、retry、supervisor、subagent、Session、Goal Driver、EventFeed 等。代码与官方固定文件的一致性在 CI 重新验证，不依靠本笔记重复转述。
-
-其他官方契约、测试文件沿各篇 F/D/T 引用直接访问。源码片段检查覆盖片段真实性；它不宣称全部长文件都被逐行审计，也不证明每个声明的契约已有动态验证。
-
-## 4. 证据用途矩阵
-
-| 问题 | 首选证据 | 本轮状态 |
-|---|---|---|
-| 现有实现在哪个边界提交/等待？ | 固定源码与相邻分支 | 静态分析＋摘录匹配 |
-| 作者当时为什么改变？ | 明确 Why、Problem、Alternatives 的记录 | 选定 PR/ADR 补查 |
-| 不这样做能否产生反例？ | 推导＋独立最小模型 | 22 项机制模型运行 |
-| 真实产品是否出现该问题？ | 上游测试、复现日志、平台实验 | 未运行，不能仅由反例认定 |
-| 哪个实现更快或更好？ | 可比工作负载与端到端测量 | 无实测排名 |
-
-为了学习选择方案，保留“作者未说明”和“本轮尚未运行”是必要信息，不应被通用架构术语填满。
+源码逐行匹配可以发现摘录被改写，却发现不了“把关闭许可解释成容量配额”这样的语义错误。因此，本轮同时保留了代码核验和人工调用链复核。

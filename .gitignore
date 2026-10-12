@@ -8,3 +8,9 @@ __pycache__/
 traces/
 *.log
 .DS_Store
+
+# Local book build
+node_modules/
+_book/
+.book-cache/
+book-plugin/assets/mermaid.min.js

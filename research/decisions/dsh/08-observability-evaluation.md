@@ -1,51 +1,76 @@
-# DSH 08｜为什么遥测游标不是送达回执，事件隔离也可能留下永久缺口？
+# DSH 08｜可观测性：遥测副本与交付边界
 
-## 1. 问题：观测不能拖死主任务，但数据消费者又想要完整账本
+一次运行产生了第 4、5、6 条事件。第 5 条在脱敏或交给导出后端时失败，第 6 条却成功了。稍后查看监控，你看到了 4 和 6，中间缺了 5。
 
-遥测想采集规范 Session facts，导出系统却可能慢、失败或因脱敏政策拒绝数据。若错误直接传播，诊断系统会破坏 Agent；若完全吞掉，又会让消费者误把残缺数据当完整运行记录。
+**遥测是供观察的日志副本，它的交接进度不等于完整送达证明。** 在 DSH 中，会话日志保存运行事实；采集协调器复制这些事实，经过导出处理后交给后端；后端再负责排队与发送。
 
-当前 coordinator clone 事件副本，经 redaction waterfall，调用 backend.emit，再推进 handoff cursor；同步异常被 contain 捕获。sink 契约要求 emit 不阻塞，handoff 明确不等于 delivered。[F1][D1]
+<!-- decision: D08-D1 | 为什么只改导出的副本，不直接把原日志脱敏？ -->
+## 会话日志与导出副本
 
-## 2. 决策 D08-D1：为什么克隆与脱敏发生在导出副本，而不是原始 Session？
+假设工具结果中有一段内部配置。后续模型请求还要用它，但外部监控只需要错误类型。如果为了监控直接改原日志，下一次重建模型上下文时，这段配置也会消失。
 
-规范日志用于上下文重建与恢复；对外观测有另外的访问/隐私政策。若为了遥测脱敏直接改原日志，模型历史和工具证据会改变；若完全不拷贝，后端异步序列化又可能看到意外变化。
+协调器在交给处理规则前，分别复制事件外壳和内容：
 
-| 方案 | 好处 | 代价或反例 |
-|---|---|---|
-| 直接导出原始对象 | 少一次复制 | 身份与权限混合，后端获得完整事实 |
-| 在 canonical log 上直接脱敏 | 全局只剩一份内容 | 恢复/模型重建丢信息，改变真实历史 |
-| 导出副本＋独立 redaction | 明确外发边界，不影响本地事实 | clone CPU/内存与脱敏规则维护 |
-| 独立最小指标而非完整事件 | 风险和成本较低 | 无法完整重建失败细节 |
+<!-- annotated-source: https://github.com/deepseek-ai/deepseek-harness/blob/d743267388641bc76f17c45ce8b4c231aed1d32c/packages/session/session-telemetry/src/coordinator.ts#L183-L194 -->
+```ts
+      // 笔记：脱敏处理的是外发记录；应保留原日志供上下文、恢复和追查使用。
+      record: this.redact({
+        // 笔记：来源外壳也复制，避免导出规则通过共享引用修改原事件。
+        sourceEvent: { sessionId: session.id, envelope: structuredClone(envelope) },
+        channel: 'ledger',
+        time: event.time,
+        severity: severityOf(event),
+        attributes: identityOf(session, event),
+        // The canonical event object is mutable and the backend serializes
+        // later; append-time validation guarantees this clone cannot throw.
+        // 笔记：正文单独深复制；后端异步序列化不会接触原始内容对象。
+        body: structuredClone(data),
+      }),
+      seq: event.seq,
+    })
+```
 
-契约本身不附通用脱敏规则；没有 listener 时是 pass-through。[D1] 因此“经过 redact()”不是“已安全脱敏”的证明；还要检查具体 deployment 装配、允许字段、历史采集授权和外发模式。includeHistory 也不是授权本身。
+`sourceEvent` 保存来源身份，`body` 是事件内容副本。处理规则只作用在这份外发记录上。[上游测试](https://github.com/deepseek-ai/deepseek-harness/blob/d743267388641bc76f17c45ce8b4c231aed1d32c/packages/session/session-telemetry/tests/telemetry.spec.ts#L118-L143)甚至修改了交出去的对象，再检查原日志保持不变。
 
-这里区分了 privacy policy 与 event truth，不等于所有场景都必须永久保留敏感原始日志。本地保留、删除和访问权限仍需单独治理。
+但“留了脱敏接口”还不等于“已经脱敏”：没有监听规则时，默认原样通过。要删哪些字段，仍由实际装配的规则决定。
 
-## 3. 决策 D08-D2：为什么 best-effort cursor 不能当连续确认水位？
+还要看清实际入口。协调器支持实时采集，但此版本基础配置使用的 [OTel 后端](https://github.com/deepseek-ai/deepseek-harness/blob/d743267388641bc76f17c45ce8b4c231aed1d32c/packages/session/session-telemetry-otel/src/index.ts#L203-L242)选择按需采集：本会话新提交的显式反馈，才授权读取截至该反馈的日志前缀。不能看到协调器有实时订阅能力，就认为部署一直在上传会话。
 
-当前 deliver 先 emit，再按 event.seq 设置 handoffCursor；captureSession 从 cursor+1 读取，单事件失败由 contain 隔离，后续事件仍继续。[F1] 文档明确允许丢失或重复，ledger 接收端按身份去重；ops 并不伪装成精确账本。[D1]
+<!-- decision: D08-D2 | 游标已经到 6，为什么第 5 条仍可能没送到？ -->
+## 导出游标与逐条送达的差异
 
-**从代码推导的具体缺口：** seq=5 在脱敏或 emit 时抛错，被 contain 隔离；seq=6 成功交接，cursor 到 6；下一次从 7 读取不会再补 5。因此这个 cursor 是已交接的高水位，不是“所有 <=cursor 都送达”的证明。若后端内部还有队列，emit 返回也不表示远端 ACK。
+每条记录交接时，代码先调用后端，再更新游标：
 
-这不应自动称为 bug：它符合 best-effort 与不阻塞其他记录的契约。若消费者想计费、精确训练样本或审计，则需要另一种可靠协议：durable outbox、逐项 ACK/连续水位、缺口重试、去重与背压。加一个重试装饰器不能消除进程丢失与游标跳过的全部窗口。
+<!-- annotated-source: https://github.com/deepseek-ai/deepseek-harness/blob/d743267388641bc76f17c45ce8b4c231aed1d32c/packages/session/session-telemetry/src/coordinator.ts#L209-L213 -->
+```ts
+  /** Hand one redacted record to the backend, then advance its ledger cursor. */
+  private deliver(session: Session, pending: PendingRecord): void {
+    // 笔记：emit 只把记录交给后端队列；成功返回不是远端送达确认。
+    this.backend.emit(pending.record)
+    // 笔记：游标跟随成功交接项前进，不能证明更早的每一项都已成功。
+    if (pending.seq !== undefined) handoffCursor.set(session, pending.seq)
+  }
+```
 
-**权衡：** 把所有失败记录堵在队首，能保留连续性，却让一条不可编码/不能脱敏的记录阻塞后续；跳过能维护主任务与后续观测可用，但必须承认缺口；dead-letter 加显式缺口事实是另一个选择，会增加政策和存储复杂度。
+`emit()` 的契约是快速放入后端队列。它返回时，网络发送可能还没开始。因此游标到 6，连第 6 条是否抵达服务端都不能证明。
 
-## 4. 为什么 ledger、ops、live stream 不能直接相加？
+再看第 5 条为什么会留下缺口：采集过程[逐条捕获异常并继续](https://github.com/deepseek-ai/deepseek-harness/blob/d743267388641bc76f17c45ce8b4c231aed1d32c/packages/session/session-telemetry/src/coordinator.ts#L151-L163)。第 5 条失败后，第 6 条成功将游标推进到 6；下一次读取从游标加一开始，也就是从 7 开始。对同一个 Session 对象，这条路径不会自动回补 5。
 
-ledger 对应规范 Session 事件；ops 是 agent-error/shutdown 等运行信号；live assistant-stream 是即时呈现。[D1] 把三者无条件合并成 token 数、错误数或任务数，可能重复统计同一事实，也可能把没持久化的在途 delta 当恢复证据。
+这样做让一条坏记录不至于堵住后续观测，也让导出故障不影响 Agent 主任务。如果要求可靠账本，就要另加持久发送队列、逐项确认、缺口重试和去重。只在 `emit()` 外包一层重试，仍处理不了进程崩溃后的未送达记录。若只需要健康趋势，接受部分丢失通常更简单。
 
-handoffCursor 使用 Session 对象 WeakMap，在同一对象被 telemetry 重载重新接管时有帮助；新对象重放则可能重复。[F1] 接收端应使用稳定 ledger identity，而非进程内对象地址。ops 没有相同去重身份时，只能按其明示的信号语义消费。
+## 遥测数据的评测适用范围
 
-缺失 usage 不能默认为 0；成功交接不能默认为成功送达；无错误遥测不能默认为无错误执行。这三条直接关系到评测归因可信度。
+`ledger` 是会话事件副本，`ops` 是错误、关闭等运行信号，实时文本片段则服务于界面显示。把三者一起数，可能重复计数；没有收到错误事件，也不能据此判断运行成功。答案质量还需要题目与评分标准，遥测主要帮助解释过程。
 
-## 5. 验证、替代与读后结论
+[上游测试](https://github.com/deepseek-ai/deepseek-harness/blob/d743267388641bc76f17c45ce8b4c231aed1d32c/packages/session/session-telemetry/tests/telemetry.spec.ts#L340-L351)明确允许后端拒绝中间一条后仍收到后续记录。本次已读源码与测试，未重跑；“下次跳过缺口”是结合游标与回放起点得出的代码推论，测试本身没有执行第二次补采。
 
-本仓库机制实验制造一项 emit 失败后下一项成功，检查高水位跳过缺口；它不运行 DSH telemetry，也不保证任何后端的队列策略。
+## 自测
 
-**上游实验待运行：** 本地 fake sink 抛错/缓慢/重复接收；逐项核对 canonical log 未变、失败记录未外发、后续记录是否继续、重新 capture 从何处开始；卸载时 shutdown 失败不应破坏其他清理。不开真实外发端点。
+后台说“已经处理到第 100 条”，能否据此把 0–100 全部作为评测样本？
 
-如果目标是聚合健康监控，best-effort 隔离往往合理；如果是合规审计或费用账本，必须另建更强确认通路。可观察性的首要能力，是告诉读者哪些数据可以信到什么程度，而不是把所有记录包装成一条看似完整的轨迹。
+<details>
+<summary>展开答案</summary>
 
-[F1]: https://github.com/deepseek-ai/deepseek-harness/blob/d743267388641bc76f17c45ce8b4c231aed1d32c/packages/session/session-telemetry/src/coordinator.ts#L1-L300
-[D1]: https://github.com/deepseek-ai/deepseek-harness/blob/d743267388641bc76f17c45ce8b4c231aed1d32c/docs/subsystems/session-telemetry.md
+不能。先区分处理、入队与远端收到，再检查序号缺口和重复；还要确认哪些会话进入了采集范围。交接游标提供进度线索，完整性需要额外证据。
+
+</details>

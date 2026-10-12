@@ -1,40 +1,49 @@
-# 横向研究：同一个问题，三种实现边界
+# Codex、OpenCode 与 DSH 的执行机制对比
 
-[总目录](README.md)
+[总目录](README.md) · [先看完整执行过程](START_HERE.md)
 
-下面是基于各篇已引用源码的分析，不是产品排名或作者原话。每个链接都有核心代码块，可以直接对照具体分支，而不是仅比较抽象术语。
+先对齐相同职责，再比较具体行为。下面的名称来自各自固定版本；同一行表示承担相近工作，不意味着对象生命周期或实现方式相同。
 
-| 研究问题 | Codex | OpenCode | DSH |
+## 整体架构的职责对照
+
+| 职责 | [Codex 架构](codex/00-architecture.md) | [OpenCode 架构](opencode/00-architecture.md) | [DSH 架构](dsh/00-architecture.md) |
 |---|---|---|---|
-| 谁推进任务？ | [Turn 与 StepContext](codex/01-agent-loop.md) | [Execution、Runner、Attempt 分层](opencode/01-agent-loop.md) | [默认 Loop 与公开输入通道](dsh/01-agent-loop.md) |
-| 模型历史从哪来？ | [压缩后重建上下文与基线](codex/02-context-session.md) | [prepare → promote → load](opencode/02-context-session.md) | [规范事件 → Surface → 派生缓存](dsh/02-context-session.md) |
-| 怎样执行工具？ | [审批与共享/独占执行门](codex/03-tools-sandbox.md) | [先发布调用，再启动 Fiber](opencode/03-tools-sandbox.md) | [滚动池、动态分类、顺序提交](dsh/03-tools-sandbox.md) |
-| 怎样集成模型？ | [Turn 路由与连接续接状态](codex/04-llm-streaming.md) | [有限重试及 hook 覆盖](opencode/04-llm-streaming.md) | [prepared route 与 attempt settlement](dsh/04-llm-streaming.md) |
-| 怎样替换能力？ | [类型化注册与宿主准入](codex/05-extension-architecture.md) | [generation 与失败旧版保留](opencode/05-extension-architecture.md) | [作用域收敛与迟到资源回收](dsh/05-extension-architecture.md) |
-| 怎样编排长期工作？ | [身份与 runtime 驻留分离](codex/06-task-orchestration.md) | [Prompt 接纳与 Job 分离](opencode/06-task-orchestration.md) | [Goal 业务状态与自动授权分离](dsh/06-task-orchestration.md) |
-| 怎么恢复？ | [后台提交许可、flush 与资格](codex/07-persistence-reliability.md) | [write-ahead claim 与停止原因](opencode/07-persistence-reliability.md) | [模型/工具副作用前检查点](dsh/07-persistence-reliability.md) |
-| 怎么观测？ | [运行阶段事件与 mock 测试](codex/08-observability-evaluation.md) | [共享编码、独立队列故障域](opencode/08-observability-evaluation.md) | [ledger 捕获、脱敏与 handoff](dsh/08-observability-evaluation.md) |
+| 外部入口与执行边界 | CLI/TUI、app-server 等宿主进入 `codex-core` | CLI/server 进入 Core；服务器连接与会话执行分开 | CLI/SDK 调用 Agent 接口；profile 决定服务装配 |
+| 推进一次任务 | Session 管理 Turn，`run_turn` 组织模型与工具循环 | 按会话协调唤醒，Runner 推进 Step，Attempt 处理一次模型尝试 | AgentLoop 管生命周期，ReactLoopAgent 提供默认执行循环 |
+| 保存状态与构造模型历史 | 内存历史供请求使用，thread-store 承担持久化 | 数据库保存收件箱和会话投影；完整事件载荷的保存另受配置控制 | Session 保留追加日志，Surface 派生当前模型视图；持久化由装配的服务实现 |
+| 安装扩展与分配资源 | 宿主通过 ExtensionRegistry 安装分职责的扩展 | PluginSupervisor 管启用状态，插件登记的修改共同生成领域状态 | Cordis 插件提供服务，profile/bundles 选择组合，作用域管理资源 |
 
-## 贯穿问题一：接纳与执行不是同一个 ACK
+完整调用链及各行的源码证据见表头的三篇架构解析。比较时应先问“这个对象负责什么”，再比较类名或框架；例如 OpenCode 的数据库投影、DSH 的追加日志与 Codex 的执行对象，不能直接视作同一种 Session。
 
-Codex 的持久化上下文允许某些检查点后台排队；OpenCode 把输入接纳与运行唤醒分开；DSH 的 checkpoint policy 在特定模型/工具副作用前等待 flush。共同方法是逐个标注 ACK：收到输入、记录意图、获得运行权、效果发生、结果提交、通知送达，各自能证明什么。
+下面设想一次修复任务：模型要求读取两个文件；第二个很快返回，第一个仍在运行；你这时补充“先别修改”，随后按下停止。这是比较用的合成场景，下面对照源码规则，不是三套系统的实测记录。
 
-这不是说三者具有完全相同的持久性协议，而是建议用同一张故障时间线检查不同实现。来源见三篇 07。
+## 输入、工具、取消与恢复机制
 
-## 贯穿问题二：请求视图与动态能力
+| 同一个问题 | Codex | OpenCode | DSH |
+|---|---|---|---|
+| 补充输入放在哪里？ | Session 接纳输入，由 Turn 执行路径决定消费；还有按配置启用的抢占路径 | 先写入持久收件箱，再唤醒按会话协调的执行器 | followup、steer、inject 区分下一轮、下一步与是否主动唤醒 |
+| 当前请求遇到工具更新怎么办？ | StepContext 保留请求设置与工具路由，执行授权还有自己的读取路径 | prepared 工具集合保留该请求的实现，工具操作仍需发起权限检查 | 请求能力与路由先准备好；未启动工具的并发分类还会重新检查 |
+| 第二个工具先完成意味着什么？ | 完成后还要收集结果；并发资格由当前工具运行时控制 | 本地工具可以并发启动，调用与终态经 Bus 更新会话投影并发布 | 先完成的结果可留在槽位，按调用顺序提交；慢的第一项可能挡住它 |
+| 按下停止是否等于资源已释放？ | 某些 handler 仍要完成结算；执行门不是全工作区通用锁 | 接受取消、旧执行结算和会话空闲分别可等待 | 停止补充新工具，等待已经启动的工作结算，给未启动调用补结果 |
+| 重启能否直接重做未知工具？ | 要检查恢复资格，以新的 continuation 继续 | 接管未释放的执行 claim，先处理孤立工具状态再继续 | 写入归 handle 所有，检查点约束副作用前保存；具体由装配策略决定 |
 
-Codex 向采样和工具链传递 StepContext；OpenCode 使用 prepared executor 并有请求级工具契约；DSH 工具调度还会在启动未运行调用前重新判定并发模式。比较时要分别研究工具实现身份、策略权限与调度分类，不能把它们合称为“快照好还是动态好”。来源见三篇 01/03。
+前三行的具体来源分别在三项目的 01、03；取消还涉及 05，恢复详见 07。表里放在同一列的机制仍可能属于不同层，不能用其中一项替代整套行为。
 
-## 贯穿问题三：取消是一段流程
+## 可复用的设计原则
 
-Codex 在取消后对需要完成结算的 handler 继续 join；OpenCode 保护终态发布但允许 work interruption；DSH 停止补池并等待已启动工作，还处理取消后迟到的创建结果。取消请求、工作停止、资源释放与日志结算是不同时间点。来源见三篇 03/05/07。
+**第一，收到输入和开始工作应有清楚的关系。** 如果你的产品不允许运行中补充输入，简单不可变任务就够；若允许补充，就要说清它进入当前请求、下一步还是下一轮。
 
-## 贯穿问题四：记录存在不表示模型见过
+**第二，执行完成和提交结果应分开观察。** 一个工具很快，却迟迟没出现在上下文里，可能是在等前面的工具或后置处理。要分别记录完成时间与提交时间，才能定位原因。
 
-运行时结果、模型可见内容、UI 元数据和遥测记录有不同用途。训练/评测轨迹必须真实反映实际请求，而不是从某个内部对象猜测模型看见什么。DSH 的 deriveMessages 与 Codex 的 for_prompt 是明确转换点，OpenCode 的 prepared request 也不能被 UI transcript 代替。来源见三篇 02/04/08。
+**第三，停止与恢复都要面对外部效果。** 文件可能已经写了，日志还没记下来。三者的局部调度与保存机制都不能单靠一条调用记录消除这个未知窗口。
 
-## 从 Harness 向 Infra 迁移
+## 不同任务条件下的简化方案
 
-本轮先掌握单任务语义，再研究多任务环境分配、配额、远程执行、租约和轨迹生产。局部锁、对象身份与持久 claim 不自动解决集群接管；本套没有万级性能或多租户安全测试结论。
+| 你的任务条件 | 可以优先考虑的简单方案 | 需求变化后再补什么 |
+|---|---|---|
+| 输入不可更改，短任务，允许失败重跑 | 固定配置＋一个执行循环 | 运行中纠正时补接纳和取消规则 |
+| 工具无副作用，结果相互独立 | 有上限的并发，按需要处理结果 | 后置处理有顺序依赖时补提交规则 |
+| 工具会改变外部系统 | 明确记录未知结果，限制自动重试 | 需要自动恢复时补幂等或效果查询协议 |
+| 插件只在启动时加载 | 固定工具表和启动时校验 | 需要热更新时补版本归属与清理 |
 
-最有价值的综合练习是：工具已经产生一次可计数的测试效果、但结果还未提交时中断，分别记录三套系统能恢复什么、会拒绝什么、什么仍未知。不要以最终一句“完成了”作为验收。
+这张表是基于已读机制的设计推导。要比较速度或任务质量，还需要相同工作负载、模型设置、权限和评分标准；当前笔记没有性能胜者。

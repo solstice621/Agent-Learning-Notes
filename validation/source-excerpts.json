@@ -1,9 +1,143 @@
 {
   "status": "PASS",
-  "notes": 24,
-  "excerpts": 70,
-  "upstream_files": 24,
-  "verified_excerpts": 70,
+  "mode": "ONLINE_PINNED_SOURCE",
+  "generated_at_utc": "2026-10-12T13:01:33+00:00",
+  "notes_head": "61ff1eb821f68ad78ae1cd908dcc4364fd4fb006",
+  "input_sha256": {
+    "source-lock.json": "6d230892dd1de0b5d7ae7ade3b26c3c29b722a239628d8d0995078bd1241ca5c",
+    "COMPARISON.md": "1b2f4ee644ee79e32cfbf84896b7104382939dc36b58b1102cb59d362b9bae16",
+    "DESIGN_INDEX.md": "8627ca432f853cecbc9475ef0b92a8a9031a3ef655ab81ef3da47a2dc69b617f",
+    "ERRATA.md": "37324bff33007937dec33375c76a7d4f5d41e7c8f201a6e73248a4a00d76e859",
+    "LABS.md": "17e4544c3c9187053e2f67db2fb4723cbd2e5933d25e1b7c1bd1f0f262d7b37d",
+    "LOCAL_BOOK.md": "71a574bf96def772270bebd743aeb2f6911a8092c03b98f68d505eb40dea336e",
+    "README.md": "a21583889230762fcc07e068632717b1e29358738dd621f2ea5a70e895e86274",
+    "RESEARCH_CHANGELOG.md": "9f1cdba52bdc21968cad4c75a3e46e3c05ac5d4a144735e2d6d176e689ac6ebd",
+    "RESEARCH_EVIDENCE.md": "5b1450296c2329395337c7a11c4bf1a61cd690b2de408954e0c703f9cba67f22",
+    "RESEARCH_EXPERIMENTS.md": "dc757f63967ce40307a9502002a44e182724fdf6e910be69139d340c17d82b23",
+    "RESEARCH_FINDINGS.md": "cff441e73df43c559c566bd21bdaf2ec7ddc55e19385d625546b1ca070809f73",
+    "RESEARCH_METHOD.md": "8a9d2e82622657053182de0388b78268e574223fd977a937f0832e1990daf332",
+    "SOURCES.md": "b677f6eb65a42593f94e1513fc86142a34cf1427129aead8dce9a4fe686b43cc",
+    "START_HERE.md": "f837d6ecf00457e7827077c690253c8036d1f7b2226242aeadf7b10806ad5a77",
+    "SUMMARY.md": "2edd91f8c1c572e1d0cb3320acc4e8e160ad85aab2cb42378c66c2d183a132f8",
+    "THIRD_PARTY_NOTICES.md": "686e78d8c9f65a7aee68c6b035cc0c41746a0b3b629558eba538c9eb332f32e4",
+    "codex/00-architecture.md": "df66a82f629f92f22749b5ffe1c8284400e4d7c404fde8c0e7576a99ba00148e",
+    "codex/01-agent-loop.md": "6daabf1c3d06dc6666a60645ff172ffb3642aab95d967ee8edb2d0427490a3f7",
+    "codex/02-context-session.md": "7716428927efbb431da89e4c20899239abee38cfb571a3b5783351b985bb352c",
+    "codex/03-tools-sandbox.md": "1194d09fe5d66c1dc2e5bf64df712562e5e2444ae2a689e74aa7b9128d103c14",
+    "codex/04-llm-streaming.md": "b49eb0fef36762983d1c8a6c48d2650f7c205471af59b20cf3bdc42aa976b82e",
+    "codex/05-extension-architecture.md": "31d20a1722674ffc71ea7178855e663ff8d803f2f80a7bcc41efedc6b18b45a3",
+    "codex/06-task-orchestration.md": "eea332f55457ff55c35e2bb70cc900f822cd5c8de39eba9cca18dae8043886a5",
+    "codex/07-persistence-reliability.md": "9e8c701242169f366e6b6c53ac2e0d9390a51b42eb985f4fabf7633b83b64cfe",
+    "codex/08-observability-evaluation.md": "51cbbba5aaf795459b5089dfb2cbbbc53071b257d42b2c671ebcf4f8a1f0a8ae",
+    "dsh/00-architecture.md": "93c9f300c4064abad9b2890402bc356c26a7f00f924436176720f5545ce38091",
+    "dsh/01-agent-loop.md": "656b564c8cd81ec2e4fd2add5323ed64a81bbed6134eb5a0a2c9622fd711963c",
+    "dsh/02-context-session.md": "b786a748f1c9285fcb3f88ba333df1d04a8806c8f784407facf48c85f6faa18c",
+    "dsh/03-tools-sandbox.md": "30be7cdcb5c7fd4f32695b19ed870de203f14759adf7ad348043dd907f2eb787",
+    "dsh/04-llm-streaming.md": "52439419ed778d14788d9790eaa73c10a960a92f80871705442e1097db1eea90",
+    "dsh/05-extension-architecture.md": "832088ce39b999d6e38c23042174d7a3509f61dece3a279228e0b0e1ebe48f42",
+    "dsh/06-task-orchestration.md": "e862f2bb7d7b0b66926aae2808f6f475568ec3c338cac879db9e1e487584955e",
+    "dsh/07-persistence-reliability.md": "f9e123526e33ed560b66ba14fa6edbacf11f2326fc5518d609fbc5243273a9f8",
+    "dsh/08-observability-evaluation.md": "3837b106da672f1c4d47e76512292e03fe612a3183d7e82813d7bb77fe33150c",
+    "opencode/00-architecture.md": "957b880f4ff449b3f0058a36f52f355ec931f4f141a546677cd28ff0736b76ab",
+    "opencode/01-agent-loop.md": "e35faa2a013a352c61926310b4b545ac97595d16d1c67690be14e9bd070b7717",
+    "opencode/02-context-session.md": "34bd6a0bce31e6e47c9fc3b55dcd587f0af22feafdb0e4f7d325c13e73ddf937",
+    "opencode/03-tools-sandbox.md": "6e9e652dabc97ddac740db6fd3d3b72917e3737822723ad79827b2016991f923",
+    "opencode/04-llm-streaming.md": "3fbade71146fea55486d0cb2f16690ceec92126bbe4a585e095afbc0c1c9a42d",
+    "opencode/05-extension-architecture.md": "28456ef8d4860f688f124207ed79daf3162b5d0e43dadfb3e1faaa5b73a14323",
+    "opencode/06-task-orchestration.md": "1b5e5871cb01685d8700cd6709734558751f5921c0ff5f4701904786dcce4c8e",
+    "opencode/07-persistence-reliability.md": "634f3d879816dd948b583e86ed74e4414b17f8fd980296e18eafb535cb87e312",
+    "opencode/08-observability-evaluation.md": "3514b1aee96515b95fd8d14d1e221a1f1121741391fb93bd73d81bc4bf8d3b1b",
+    "research/decisions/codex/01-agent-loop.md": "a41daf8a9e3c9e469dff65f863b45f6b752af2178e81113dd2a45189d34cc144",
+    "research/decisions/codex/02-context-session.md": "1b4c762ccaf786528e8c9becf58baed6f5698f19997169cdb8212cec767b9ea8",
+    "research/decisions/codex/03-tools-sandbox.md": "ecce33d5ea53d50c343a846078b02c7941e9a446f42b778029011ec5b8017b2e",
+    "research/decisions/codex/04-llm-streaming.md": "71664bb115d233450afa4a9423756378ed30a814db41739a7ebaf00b58a1d5e9",
+    "research/decisions/codex/05-extension-architecture.md": "32b437dfeb2ffd19e14ab342b361f515e46158a1dea619f53774c31292221c75",
+    "research/decisions/codex/06-task-orchestration.md": "c989de72feaaccdcf50efdea4ffd9b6bf1d3e58de735936e01688c2eacb833f8",
+    "research/decisions/codex/07-persistence-reliability.md": "80c7cfea21444e332070f02d565fcf58ba25fd9282968e8120135dfe5f5f0633",
+    "research/decisions/codex/08-observability-evaluation.md": "5474cc031f8415315a79a0c6657cc627a5879b2aa7b6057335776be2846030b2",
+    "research/decisions/dsh/01-agent-loop.md": "bf784deae6486aff496bf27dcea9d4e312050f1126437d079c6d498a13a5687d",
+    "research/decisions/dsh/02-context-session.md": "c7a52251ec114b6303e3fce04694613355073bd1161644c12fc6d554280ecdd4",
+    "research/decisions/dsh/03-tools-sandbox.md": "58a42e3fcd0e6e0c294057f387aa4f65f58ca53e2a3ca2a22e2b4ef2c046fa27",
+    "research/decisions/dsh/04-llm-streaming.md": "59410c979011596d3a4d7c881c0efaeb6b005b42b8e9cc469792a0483cdfeb5e",
+    "research/decisions/dsh/05-extension-architecture.md": "2995887751bc397142f85c88b66b1a107ff41f9746a34ca1e9593c2d496dfecf",
+    "research/decisions/dsh/06-task-orchestration.md": "e680644a2cf2e2f9b5160c85c7870b1ae7d522111fa086f1311c171ad7a88bb3",
+    "research/decisions/dsh/07-persistence-reliability.md": "2fc691f749270016af80e3f16ccb5463f0cdfa90dcded1ddf9fd5f084783ccac",
+    "research/decisions/dsh/08-observability-evaluation.md": "3055167cd69d97005b05716f7010b145bb2171e654947aa622f1b19e29fd2036",
+    "research/decisions/opencode/01-agent-loop.md": "8f9c5686e59c9ea36c65a6b48a5c5688fb30e7fcefda09cf5e629da4b777f9ea",
+    "research/decisions/opencode/02-context-session.md": "0f615778b29c8b41c4d6ecb270f3a38548f7c1b80c4a72288d23665a1112e07e",
+    "research/decisions/opencode/03-tools-sandbox.md": "c29813b7fab25eade180ca680c9f875974e662b8725edd8295128bf4aae47e2d",
+    "research/decisions/opencode/04-llm-streaming.md": "97849e402b1ea89cf8d8202a3fa596f68cfe0f82046552cc8b412aa32967d390",
+    "research/decisions/opencode/05-extension-architecture.md": "c5f2335466e70e9b656c8cbe2bf4b15e42e61d1e583c5549bd14b69fffb53f75",
+    "research/decisions/opencode/06-task-orchestration.md": "a788b1416bfc72fc4682fe7aaaee3887651a331e3e5599bc4d8eb4d5d4495d2d",
+    "research/decisions/opencode/07-persistence-reliability.md": "9a1986da69e4107c75b4b1b47fd79de5f15c05104339f4a4b5eb85e6e0dc5307",
+    "research/decisions/opencode/08-observability-evaluation.md": "a029ce45311424e53e58d1f372b594c88302b0a7b5071075ae8581774b6efc98",
+    "research/reread/README.md": "1eaeddd336802b8cbadcfcfc6650eba24584dc1f2c7d8bb85b2eb2b4858f3c1b",
+    "research/reread/codex-01-04.md": "ecff0ed54d87a064d87cc9e1f942c4e60f95670576b966303a88ea1c2784dca6",
+    "research/reread/codex-05-08.md": "e0ea47da4f4ef328787f3db0b089540ca4ea046184e3a56d3496442a1ba31012",
+    "research/reread/codex-architecture.md": "3866f6e38016fccce8f8c97069e65dc0f1fef1d14bdbc2c88786de3aabc05f4a",
+    "research/reread/dsh-01-04.md": "8ce1fc3fe832ca832b616385e0ff76c57fd19cb5792538634a9a86460707b57b",
+    "research/reread/dsh-05-08.md": "515555f67f4586890ee8693a782905bd8eb98b31d5b7dbaf8023b4110c15866c",
+    "research/reread/dsh-architecture.md": "2407bf098825a7022087ebffe08d883c58368c45d04f18e895bb7a17625fbf7c",
+    "research/reread/opencode-01-04.md": "91f6926b457f1ab27bf79742e4eb335ee4c4c3837104a7d32584b1b2b06e3985",
+    "research/reread/opencode-05-08.md": "dd71c74b71ac64d8812547c81dd2feb3181e2b2070d83785da95b4ab79d1a3f7",
+    "research/reread/opencode-architecture.md": "ab964182d50772f327800a13a23d0456a3b6effc16763ecca0850c1a752a5ada",
+    "validation/README.md": "f026c4308b2d69141c237be81dadf637945b9d9c5f2df3e7899616fe76fb654c"
+  },
+  "input_digest_sha256": "9f7b6c123a568fe7edf14bf9e83115b4bf62488f5a069041fdf6af8b87e5596e",
+  "notes": 27,
+  "topic_notes": 24,
+  "architecture_notes": 3,
+  "excerpts": 53,
+  "upstream_files": 38,
+  "topic_source_excerpts": 49,
+  "architecture_source_excerpts": 4,
+  "verbatim_source_excerpts": 0,
+  "annotated_source_excerpts": 53,
+  "annotation_lines": 149,
+  "verified_excerpts": 53,
+  "local_snapshot_identities": [],
+  "verified_verbatim_excerpts": 0,
+  "verified_annotated_excerpts": 53,
+  "source_files_sha256": {
+    "https://raw.githubusercontent.com/anomalyco/opencode/60a212c0769acd96b446acbadeb790486830f91d/packages/core/src/plugin/supervisor.ts": "7c5b72503909c8dfb20c75315d8f2b4101a48da81f64e2565a330f75afc06666",
+    "https://raw.githubusercontent.com/anomalyco/opencode/60a212c0769acd96b446acbadeb790486830f91d/packages/core/src/session/execution.ts": "f86c35f46c9bae634f955328979c3eade27d5df06e115d677eece7f4e4f1ce3a",
+    "https://raw.githubusercontent.com/anomalyco/opencode/60a212c0769acd96b446acbadeb790486830f91d/packages/core/src/session/history.ts": "a3d21e77aff871d924b1fb9119e88cb1cfb3159088db6cd561944bba15b7f89d",
+    "https://raw.githubusercontent.com/anomalyco/opencode/60a212c0769acd96b446acbadeb790486830f91d/packages/core/src/session/run-coordinator.ts": "20dc6417c597e6d5bc6f349e31ed5d3e88db4be31b548be1f35262e87fcc3c4b",
+    "https://raw.githubusercontent.com/anomalyco/opencode/60a212c0769acd96b446acbadeb790486830f91d/packages/core/src/session/runner/llm.ts": "9e0485919459faa9858622c4ab2939a53e43a77c3785ba339133dcf2043ad3b9",
+    "https://raw.githubusercontent.com/anomalyco/opencode/60a212c0769acd96b446acbadeb790486830f91d/packages/core/src/session/runner/publish-llm-event.ts": "b6f1f2c1746af7d9b89ff29c0c9e091bf5eff690a9ab41d7933b3a0873e75f08",
+    "https://raw.githubusercontent.com/anomalyco/opencode/60a212c0769acd96b446acbadeb790486830f91d/packages/core/src/session/runner/retry.ts": "9d8e9df044f5c60990997bf507b2e831d6ddf163db6fd38cd1ee5142e5dd6868",
+    "https://raw.githubusercontent.com/anomalyco/opencode/60a212c0769acd96b446acbadeb790486830f91d/packages/core/src/session/runner/step.ts": "c4b7f1a5099216dace1ff65baa79c98203a523cdcfb216904ae41e0f403749c7",
+    "https://raw.githubusercontent.com/anomalyco/opencode/60a212c0769acd96b446acbadeb790486830f91d/packages/core/src/session/subagent-job.ts": "fcecd0bc044e643ab749e98aeee08cb40c391bb692fbcf73001b2902f4b62fbd",
+    "https://raw.githubusercontent.com/anomalyco/opencode/60a212c0769acd96b446acbadeb790486830f91d/packages/core/src/state.ts": "ffdaf9268a2cddec8f00870ed78a64031a148142e9c2497fad016e1c07cadea5",
+    "https://raw.githubusercontent.com/anomalyco/opencode/60a212c0769acd96b446acbadeb790486830f91d/packages/core/src/tool.ts": "53d4b68ad8d7cf4ff4c88bf2c12ab028a0696fd5dfa41fa26951df55d633a2d4",
+    "https://raw.githubusercontent.com/anomalyco/opencode/60a212c0769acd96b446acbadeb790486830f91d/packages/core/src/tool/plugin/subagent.ts": "fc6e821262ea17c26e63f2955e6fc1ad17475894701ec79d79494318204ad74b",
+    "https://raw.githubusercontent.com/anomalyco/opencode/60a212c0769acd96b446acbadeb790486830f91d/packages/server/src/event-feed.ts": "8867fb8ca3b1d7d667038ac1210a69a33b2cc264be0782d3e735e9bbf6eba568",
+    "https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/d743267388641bc76f17c45ce8b4c231aed1d32c/packages/bundle/headless/src/index.ts": "95c0f91a38f038aaa600c7e09cbab545d59549336d2635e5fa7a8b1f800ec62a",
+    "https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/d743267388641bc76f17c45ce8b4c231aed1d32c/packages/core/agent-loop/src/agent.ts": "4add12f5c22bb1b8cf1dbc239c9b09fa3351feff2c936cb2b8900036468bd01b",
+    "https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/d743267388641bc76f17c45ce8b4c231aed1d32c/packages/core/agent-loop/src/assistant-stream.ts": "120d2bec5efeec2aa54bf0e4261a45282936272d610dbbab21eee36b902629de",
+    "https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/d743267388641bc76f17c45ce8b4c231aed1d32c/packages/core/agent-loop/src/index.ts": "3ea0262656c8ddcaa3be315c150bdc2af09371031c3c471d4ded511e21c6e86b",
+    "https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/d743267388641bc76f17c45ce8b4c231aed1d32c/packages/core/agent-loop/src/tool-calls.ts": "5c7e8d8ff0028b436efdd13e5dffa4801d2311c211c3af039e7dab705f87b303",
+    "https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/d743267388641bc76f17c45ce8b4c231aed1d32c/packages/core/session/src/index.ts": "434e079558c804497cabee0fb73329843bfa4ceb1dce3e3d1b33c73469bdb2f4",
+    "https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/d743267388641bc76f17c45ce8b4c231aed1d32c/packages/core/session/src/surface.ts": "5b5394dc02584cb3549330b358fbe5919d05f8a6920d90f6819bb7e3b4783154",
+    "https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/d743267388641bc76f17c45ce8b4c231aed1d32c/packages/fs/tool-fs/src/read.ts": "808d3018dbfb925dc223da25d5a7c7d30fd405b4aec121e895a35f374fee319d",
+    "https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/d743267388641bc76f17c45ce8b4c231aed1d32c/packages/goal/goal-round-driver/src/index.ts": "b59f61befcf8746327ec25b4a3812d44e243113da47cc323033806e8c65b6293",
+    "https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/d743267388641bc76f17c45ce8b4c231aed1d32c/packages/llm/llm-deepseek/src/adapter.ts": "3da7add8a973c648e630a0244e21cfdc65ac0d37c62d53219ebc328245e65a41",
+    "https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/d743267388641bc76f17c45ce8b4c231aed1d32c/packages/session/session-checkpoint-policy/src/index.ts": "2b93aae29cfb0b5757656f4e2e54c21d2ab5c11c1bccaed014735ecb9685fe35",
+    "https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/d743267388641bc76f17c45ce8b4c231aed1d32c/packages/session/session-telemetry/src/coordinator.ts": "95b54c800069ec144f66af8acaae30e07805d784abd4e21e22d584b68feae4ae",
+    "https://raw.githubusercontent.com/openai/codex/a9b0815167c27ab13719dd12d13b63e02b70d221/codex-rs/app-server/src/request_processors/daemon_continuation.rs": "6a252a49a349be22fe022dedf6ffd2b6517c4b69caeae042c1b8fed9fc791148",
+    "https://raw.githubusercontent.com/openai/codex/a9b0815167c27ab13719dd12d13b63e02b70d221/codex-rs/app-server/src/request_processors/daemon_snapshot.rs": "a23e5cca1f19c0c8e84fb0d71a644558aa76a5778a07d09660e5c3cb4b2f358c",
+    "https://raw.githubusercontent.com/openai/codex/a9b0815167c27ab13719dd12d13b63e02b70d221/codex-rs/app-server/src/turn_admission.rs": "ef33c73b7d69b32766471eb998489564585bd484d0e2ef49e4833065f02d84af",
+    "https://raw.githubusercontent.com/openai/codex/a9b0815167c27ab13719dd12d13b63e02b70d221/codex-rs/core/src/agent/control/api.rs": "423dc48c637851d91e40220fd3c499a14342e14bf966c3343186443922b68334",
+    "https://raw.githubusercontent.com/openai/codex/a9b0815167c27ab13719dd12d13b63e02b70d221/codex-rs/core/src/agent/control/spawn.rs": "f8c55f564c1fa164d7e8ed8cbcf0950e560537124da747c22145d93f44aa2ca1",
+    "https://raw.githubusercontent.com/openai/codex/a9b0815167c27ab13719dd12d13b63e02b70d221/codex-rs/core/src/client.rs": "20e386c51e074b36f0c78d0f2b12d48ae003b7a51c30e4cb117c0195fba93c36",
+    "https://raw.githubusercontent.com/openai/codex/a9b0815167c27ab13719dd12d13b63e02b70d221/codex-rs/core/src/compact.rs": "fb897f7a1893b0d2c8edc7f9800c9243b52dceb8144e54a833056100361a5015",
+    "https://raw.githubusercontent.com/openai/codex/a9b0815167c27ab13719dd12d13b63e02b70d221/codex-rs/core/src/session/mod.rs": "cc1467140654e9009557d7f8dc93117420e4d54ef22b3b2d8af3f216aa738cb1",
+    "https://raw.githubusercontent.com/openai/codex/a9b0815167c27ab13719dd12d13b63e02b70d221/codex-rs/core/src/session/turn.rs": "61bdcbc862681633b039e677f2b48069d6988c89bd78e11057d746ba0c0ba885",
+    "https://raw.githubusercontent.com/openai/codex/a9b0815167c27ab13719dd12d13b63e02b70d221/codex-rs/core/src/tools/parallel.rs": "be06530c709b09c414df6ec4c8c6f26f117c319d144c8d52289327b3c71a6bb6",
+    "https://raw.githubusercontent.com/openai/codex/a9b0815167c27ab13719dd12d13b63e02b70d221/codex-rs/ext/extension-api/src/registry.rs": "f0d317b8978f4603b97013d6f29dad87def73b1d94cca9c4118d50d088ef5c2d",
+    "https://raw.githubusercontent.com/openai/codex/a9b0815167c27ab13719dd12d13b63e02b70d221/codex-rs/rollout-trace/src/thread.rs": "29e6afa233da57139af71698692a2cee67ce109dccf1347ee3a426a39b1d0c45",
+    "https://raw.githubusercontent.com/openai/codex/a9b0815167c27ab13719dd12d13b63e02b70d221/codex-rs/rollout-trace/src/writer.rs": "5efa68c044b9f880e3ee1db7d208fecdea806a6e1fbdfa2f9037b74e076c6d4a"
+  },
   "upstream_agent_tests_run": false,
   "errors": [],
   "matches": [
@@ -12,490 +146,531 @@
       "excerpt": 1,
       "source": "https://raw.githubusercontent.com/openai/codex/a9b0815167c27ab13719dd12d13b63e02b70d221/codex-rs/core/src/session/turn.rs",
       "actual_start": 429,
-      "actual_end": 448
+      "actual_end": 436,
+      "kind": "annotated-source",
+      "annotation_lines": 2,
+      "comparison": "original_lines_after_teaching_comments_removed"
     },
     {
       "note": "codex/01-agent-loop.md",
       "excerpt": 2,
-      "source": "https://raw.githubusercontent.com/openai/codex/a9b0815167c27ab13719dd12d13b63e02b70d221/codex-rs/core/src/session/turn.rs",
-      "actual_start": 524,
-      "actual_end": 541
+      "source": "https://raw.githubusercontent.com/openai/codex/a9b0815167c27ab13719dd12d13b63e02b70d221/codex-rs/core/src/tools/parallel.rs",
+      "actual_start": 45,
+      "actual_end": 52,
+      "kind": "annotated-source",
+      "annotation_lines": 3,
+      "comparison": "original_lines_after_teaching_comments_removed"
     },
     {
       "note": "codex/02-context-session.md",
       "excerpt": 1,
       "source": "https://raw.githubusercontent.com/openai/codex/a9b0815167c27ab13719dd12d13b63e02b70d221/codex-rs/core/src/compact.rs",
-      "actual_start": 80,
-      "actual_end": 95
+      "actual_start": 86,
+      "actual_end": 95,
+      "kind": "annotated-source",
+      "annotation_lines": 3,
+      "comparison": "original_lines_after_teaching_comments_removed"
     },
     {
       "note": "codex/02-context-session.md",
       "excerpt": 2,
-      "source": "https://raw.githubusercontent.com/openai/codex/a9b0815167c27ab13719dd12d13b63e02b70d221/codex-rs/core/src/compact.rs",
-      "actual_start": 97,
-      "actual_end": 111
-    },
-    {
-      "note": "codex/02-context-session.md",
-      "excerpt": 3,
-      "source": "https://raw.githubusercontent.com/openai/codex/a9b0815167c27ab13719dd12d13b63e02b70d221/codex-rs/core/src/compact.rs",
-      "actual_start": 69,
-      "actual_end": 77
+      "source": "https://raw.githubusercontent.com/openai/codex/a9b0815167c27ab13719dd12d13b63e02b70d221/codex-rs/core/src/session/mod.rs",
+      "actual_start": 4213,
+      "actual_end": 4226,
+      "kind": "annotated-source",
+      "annotation_lines": 4,
+      "comparison": "original_lines_after_teaching_comments_removed"
     },
     {
       "note": "codex/03-tools-sandbox.md",
       "excerpt": 1,
-      "source": "https://raw.githubusercontent.com/openai/codex/a9b0815167c27ab13719dd12d13b63e02b70d221/codex-rs/core/src/tools/orchestrator.rs",
-      "actual_start": 201,
-      "actual_end": 225
+      "source": "https://raw.githubusercontent.com/openai/codex/a9b0815167c27ab13719dd12d13b63e02b70d221/codex-rs/core/src/tools/parallel.rs",
+      "actual_start": 260,
+      "actual_end": 272,
+      "kind": "annotated-source",
+      "annotation_lines": 4,
+      "comparison": "original_lines_after_teaching_comments_removed"
     },
     {
       "note": "codex/03-tools-sandbox.md",
       "excerpt": 2,
       "source": "https://raw.githubusercontent.com/openai/codex/a9b0815167c27ab13719dd12d13b63e02b70d221/codex-rs/core/src/tools/parallel.rs",
-      "actual_start": 206,
-      "actual_end": 220
-    },
-    {
-      "note": "codex/03-tools-sandbox.md",
-      "excerpt": 3,
-      "source": "https://raw.githubusercontent.com/openai/codex/a9b0815167c27ab13719dd12d13b63e02b70d221/codex-rs/core/src/tools/parallel.rs",
-      "actual_start": 264,
-      "actual_end": 272
+      "actual_start": 213,
+      "actual_end": 224,
+      "kind": "annotated-source",
+      "annotation_lines": 5,
+      "comparison": "original_lines_after_teaching_comments_removed"
     },
     {
       "note": "codex/04-llm-streaming.md",
       "excerpt": 1,
       "source": "https://raw.githubusercontent.com/openai/codex/a9b0815167c27ab13719dd12d13b63e02b70d221/codex-rs/core/src/client.rs",
-      "actual_start": 295,
-      "actual_end": 310
+      "actual_start": 669,
+      "actual_end": 681,
+      "kind": "annotated-source",
+      "annotation_lines": 3,
+      "comparison": "original_lines_after_teaching_comments_removed"
     },
     {
       "note": "codex/04-llm-streaming.md",
       "excerpt": 2,
       "source": "https://raw.githubusercontent.com/openai/codex/a9b0815167c27ab13719dd12d13b63e02b70d221/codex-rs/core/src/client.rs",
-      "actual_start": 324,
-      "actual_end": 336
-    },
-    {
-      "note": "codex/04-llm-streaming.md",
-      "excerpt": 3,
-      "source": "https://raw.githubusercontent.com/openai/codex/a9b0815167c27ab13719dd12d13b63e02b70d221/codex-rs/core/src/client.rs",
-      "actual_start": 340,
-      "actual_end": 354
+      "actual_start": 1486,
+      "actual_end": 1500,
+      "kind": "annotated-source",
+      "annotation_lines": 4,
+      "comparison": "original_lines_after_teaching_comments_removed"
     },
     {
       "note": "codex/05-extension-architecture.md",
       "excerpt": 1,
       "source": "https://raw.githubusercontent.com/openai/codex/a9b0815167c27ab13719dd12d13b63e02b70d221/codex-rs/ext/extension-api/src/registry.rs",
-      "actual_start": 137,
-      "actual_end": 150
+      "actual_start": 112,
+      "actual_end": 125,
+      "kind": "annotated-source",
+      "annotation_lines": 4,
+      "comparison": "original_lines_after_teaching_comments_removed"
     },
     {
       "note": "codex/05-extension-architecture.md",
       "excerpt": 2,
-      "source": "https://raw.githubusercontent.com/openai/codex/a9b0815167c27ab13719dd12d13b63e02b70d221/codex-rs/ext/extension-api/src/registry.rs",
-      "actual_start": 154,
-      "actual_end": 170
-    },
-    {
-      "note": "codex/05-extension-architecture.md",
-      "excerpt": 3,
-      "source": "https://raw.githubusercontent.com/openai/codex/a9b0815167c27ab13719dd12d13b63e02b70d221/codex-rs/ext/extension-api/src/registry.rs",
-      "actual_start": 196,
-      "actual_end": 203
+      "source": "https://raw.githubusercontent.com/openai/codex/a9b0815167c27ab13719dd12d13b63e02b70d221/codex-rs/app-server/src/turn_admission.rs",
+      "actual_start": 52,
+      "actual_end": 62,
+      "kind": "annotated-source",
+      "annotation_lines": 3,
+      "comparison": "original_lines_after_teaching_comments_removed"
     },
     {
       "note": "codex/06-task-orchestration.md",
       "excerpt": 1,
+      "source": "https://raw.githubusercontent.com/openai/codex/a9b0815167c27ab13719dd12d13b63e02b70d221/codex-rs/core/src/agent/control/api.rs",
+      "actual_start": 112,
+      "actual_end": 120,
+      "kind": "annotated-source",
+      "annotation_lines": 4,
+      "comparison": "original_lines_after_teaching_comments_removed"
+    },
+    {
+      "note": "codex/06-task-orchestration.md",
+      "excerpt": 2,
       "source": "https://raw.githubusercontent.com/openai/codex/a9b0815167c27ab13719dd12d13b63e02b70d221/codex-rs/core/src/agent/control/spawn.rs",
       "actual_start": 326,
-      "actual_end": 343
-    },
-    {
-      "note": "codex/06-task-orchestration.md",
-      "excerpt": 2,
-      "source": "https://raw.githubusercontent.com/openai/codex/a9b0815167c27ab13719dd12d13b63e02b70d221/codex-rs/core/src/agent/control/spawn.rs",
-      "actual_start": 344,
-      "actual_end": 357
+      "actual_end": 338,
+      "kind": "annotated-source",
+      "annotation_lines": 4,
+      "comparison": "original_lines_after_teaching_comments_removed"
     },
     {
       "note": "codex/07-persistence-reliability.md",
       "excerpt": 1,
-      "source": "https://raw.githubusercontent.com/openai/codex/a9b0815167c27ab13719dd12d13b63e02b70d221/codex-rs/thread-store/src/store.rs",
-      "actual_start": 85,
-      "actual_end": 94
+      "source": "https://raw.githubusercontent.com/openai/codex/a9b0815167c27ab13719dd12d13b63e02b70d221/codex-rs/app-server/src/request_processors/daemon_snapshot.rs",
+      "actual_start": 30,
+      "actual_end": 40,
+      "kind": "annotated-source",
+      "annotation_lines": 4,
+      "comparison": "original_lines_after_teaching_comments_removed"
     },
     {
       "note": "codex/07-persistence-reliability.md",
       "excerpt": 2,
-      "source": "https://raw.githubusercontent.com/openai/codex/a9b0815167c27ab13719dd12d13b63e02b70d221/codex-rs/thread-store/src/store.rs",
-      "actual_start": 183,
-      "actual_end": 194
-    },
-    {
-      "note": "codex/07-persistence-reliability.md",
-      "excerpt": 3,
-      "source": "https://raw.githubusercontent.com/openai/codex/a9b0815167c27ab13719dd12d13b63e02b70d221/codex-rs/core/src/session/daemon_recovery.rs",
-      "actual_start": 26,
-      "actual_end": 42
+      "source": "https://raw.githubusercontent.com/openai/codex/a9b0815167c27ab13719dd12d13b63e02b70d221/codex-rs/app-server/src/request_processors/daemon_continuation.rs",
+      "actual_start": 74,
+      "actual_end": 87,
+      "kind": "annotated-source",
+      "annotation_lines": 3,
+      "comparison": "original_lines_after_teaching_comments_removed"
     },
     {
       "note": "codex/08-observability-evaluation.md",
       "excerpt": 1,
-      "source": "https://raw.githubusercontent.com/openai/codex/a9b0815167c27ab13719dd12d13b63e02b70d221/codex-rs/core/src/tools/parallel.rs",
-      "actual_start": 191,
-      "actual_end": 200
+      "source": "https://raw.githubusercontent.com/openai/codex/a9b0815167c27ab13719dd12d13b63e02b70d221/codex-rs/rollout-trace/src/writer.rs",
+      "actual_start": 91,
+      "actual_end": 105,
+      "kind": "annotated-source",
+      "annotation_lines": 3,
+      "comparison": "original_lines_after_teaching_comments_removed"
     },
     {
       "note": "codex/08-observability-evaluation.md",
       "excerpt": 2,
-      "source": "https://raw.githubusercontent.com/openai/codex/a9b0815167c27ab13719dd12d13b63e02b70d221/codex-rs/core/src/tools/parallel.rs",
-      "actual_start": 240,
-      "actual_end": 252
+      "source": "https://raw.githubusercontent.com/openai/codex/a9b0815167c27ab13719dd12d13b63e02b70d221/codex-rs/rollout-trace/src/thread.rs",
+      "actual_start": 106,
+      "actual_end": 118,
+      "kind": "annotated-source",
+      "annotation_lines": 3,
+      "comparison": "original_lines_after_teaching_comments_removed"
     },
     {
-      "note": "codex/08-observability-evaluation.md",
-      "excerpt": 3,
-      "source": "https://raw.githubusercontent.com/openai/codex/a9b0815167c27ab13719dd12d13b63e02b70d221/codex-rs/core/tests/suite/tool_parallelism.rs",
-      "actual_start": 109,
-      "actual_end": 117
-    },
-    {
-      "note": "codex/08-observability-evaluation.md",
-      "excerpt": 4,
-      "source": "https://raw.githubusercontent.com/openai/codex/a9b0815167c27ab13719dd12d13b63e02b70d221/codex-rs/core/tests/suite/tool_parallelism.rs",
-      "actual_start": 130,
-      "actual_end": 135
-    },
-    {
-      "note": "opencode/01-agent-loop.md",
+      "note": "opencode/00-architecture.md",
       "excerpt": 1,
-      "source": "https://raw.githubusercontent.com/anomalyco/opencode/60a212c0769acd96b446acbadeb790486830f91d/packages/core/src/session/execution.ts",
-      "actual_start": 93,
-      "actual_end": 109
-    },
-    {
-      "note": "opencode/01-agent-loop.md",
-      "excerpt": 2,
-      "source": "https://raw.githubusercontent.com/anomalyco/opencode/60a212c0769acd96b446acbadeb790486830f91d/packages/core/src/session/runner/llm.ts",
-      "actual_start": 188,
-      "actual_end": 195
-    },
-    {
-      "note": "opencode/01-agent-loop.md",
-      "excerpt": 3,
-      "source": "https://raw.githubusercontent.com/anomalyco/opencode/60a212c0769acd96b446acbadeb790486830f91d/packages/core/src/session/runner/llm.ts",
-      "actual_start": 208,
-      "actual_end": 222
-    },
-    {
-      "note": "opencode/02-context-session.md",
-      "excerpt": 1,
-      "source": "https://raw.githubusercontent.com/anomalyco/opencode/60a212c0769acd96b446acbadeb790486830f91d/packages/core/src/session/runner/llm.ts",
-      "actual_start": 198,
-      "actual_end": 203
-    },
-    {
-      "note": "opencode/02-context-session.md",
-      "excerpt": 2,
-      "source": "https://raw.githubusercontent.com/anomalyco/opencode/60a212c0769acd96b446acbadeb790486830f91d/packages/core/src/session/runner/llm.ts",
-      "actual_start": 165,
-      "actual_end": 179
-    },
-    {
-      "note": "opencode/02-context-session.md",
-      "excerpt": 3,
-      "source": "https://raw.githubusercontent.com/anomalyco/opencode/60a212c0769acd96b446acbadeb790486830f91d/packages/core/src/session/runner/llm.ts",
-      "actual_start": 224,
-      "actual_end": 230
-    },
-    {
-      "note": "opencode/03-tools-sandbox.md",
-      "excerpt": 1,
-      "source": "https://raw.githubusercontent.com/anomalyco/opencode/60a212c0769acd96b446acbadeb790486830f91d/packages/core/src/session/runner/step.ts",
-      "actual_start": 95,
-      "actual_end": 105
-    },
-    {
-      "note": "opencode/03-tools-sandbox.md",
-      "excerpt": 2,
       "source": "https://raw.githubusercontent.com/anomalyco/opencode/60a212c0769acd96b446acbadeb790486830f91d/packages/core/src/session/runner/step.ts",
       "actual_start": 125,
-      "actual_end": 138
+      "actual_end": 138,
+      "kind": "annotated-source",
+      "annotation_lines": 3,
+      "comparison": "original_lines_after_teaching_comments_removed"
+    },
+    {
+      "note": "opencode/00-architecture.md",
+      "excerpt": 2,
+      "source": "https://raw.githubusercontent.com/anomalyco/opencode/60a212c0769acd96b446acbadeb790486830f91d/packages/core/src/session/subagent-job.ts",
+      "actual_start": 34,
+      "actual_end": 41,
+      "kind": "annotated-source",
+      "annotation_lines": 2,
+      "comparison": "original_lines_after_teaching_comments_removed"
+    },
+    {
+      "note": "opencode/01-agent-loop.md",
+      "excerpt": 1,
+      "source": "https://raw.githubusercontent.com/anomalyco/opencode/60a212c0769acd96b446acbadeb790486830f91d/packages/core/src/session/run-coordinator.ts",
+      "actual_start": 136,
+      "actual_end": 145,
+      "kind": "annotated-source",
+      "annotation_lines": 3,
+      "comparison": "original_lines_after_teaching_comments_removed"
+    },
+    {
+      "note": "opencode/01-agent-loop.md",
+      "excerpt": 2,
+      "source": "https://raw.githubusercontent.com/anomalyco/opencode/60a212c0769acd96b446acbadeb790486830f91d/packages/core/src/session/runner/llm.ts",
+      "actual_start": 206,
+      "actual_end": 217,
+      "kind": "annotated-source",
+      "annotation_lines": 2,
+      "comparison": "original_lines_after_teaching_comments_removed"
+    },
+    {
+      "note": "opencode/02-context-session.md",
+      "excerpt": 1,
+      "source": "https://raw.githubusercontent.com/anomalyco/opencode/60a212c0769acd96b446acbadeb790486830f91d/packages/core/src/session/runner/llm.ts",
+      "actual_start": 165,
+      "actual_end": 173,
+      "kind": "annotated-source",
+      "annotation_lines": 2,
+      "comparison": "original_lines_after_teaching_comments_removed"
+    },
+    {
+      "note": "opencode/02-context-session.md",
+      "excerpt": 2,
+      "source": "https://raw.githubusercontent.com/anomalyco/opencode/60a212c0769acd96b446acbadeb790486830f91d/packages/core/src/session/history.ts",
+      "actual_start": 83,
+      "actual_end": 95,
+      "kind": "annotated-source",
+      "annotation_lines": 2,
+      "comparison": "original_lines_after_teaching_comments_removed"
     },
     {
       "note": "opencode/03-tools-sandbox.md",
-      "excerpt": 3,
-      "source": "https://raw.githubusercontent.com/anomalyco/opencode/60a212c0769acd96b446acbadeb790486830f91d/packages/core/src/session/runner/step.ts",
-      "actual_start": 90,
-      "actual_end": 94
+      "excerpt": 1,
+      "source": "https://raw.githubusercontent.com/anomalyco/opencode/60a212c0769acd96b446acbadeb790486830f91d/packages/core/src/tool.ts",
+      "actual_start": 225,
+      "actual_end": 235,
+      "kind": "annotated-source",
+      "annotation_lines": 3,
+      "comparison": "original_lines_after_teaching_comments_removed"
+    },
+    {
+      "note": "opencode/03-tools-sandbox.md",
+      "excerpt": 2,
+      "source": "https://raw.githubusercontent.com/anomalyco/opencode/60a212c0769acd96b446acbadeb790486830f91d/packages/core/src/session/runner/publish-llm-event.ts",
+      "actual_start": 586,
+      "actual_end": 595,
+      "kind": "annotated-source",
+      "annotation_lines": 2,
+      "comparison": "original_lines_after_teaching_comments_removed"
     },
     {
       "note": "opencode/04-llm-streaming.md",
       "excerpt": 1,
-      "source": "https://raw.githubusercontent.com/anomalyco/opencode/60a212c0769acd96b446acbadeb790486830f91d/packages/core/src/session/runner/retry.ts",
-      "actual_start": 45,
-      "actual_end": 56
+      "source": "https://raw.githubusercontent.com/anomalyco/opencode/60a212c0769acd96b446acbadeb790486830f91d/packages/core/src/session/runner/step.ts",
+      "actual_start": 204,
+      "actual_end": 209,
+      "kind": "annotated-source",
+      "annotation_lines": 2,
+      "comparison": "original_lines_after_teaching_comments_removed"
     },
     {
       "note": "opencode/04-llm-streaming.md",
       "excerpt": 2,
-      "source": "https://raw.githubusercontent.com/anomalyco/opencode/60a212c0769acd96b446acbadeb790486830f91d/packages/core/src/session/runner/retry.ts",
-      "actual_start": 32,
-      "actual_end": 40
+      "source": "https://raw.githubusercontent.com/anomalyco/opencode/60a212c0769acd96b446acbadeb790486830f91d/packages/core/src/session/runner/llm.ts",
+      "actual_start": 278,
+      "actual_end": 286,
+      "kind": "annotated-source",
+      "annotation_lines": 2,
+      "comparison": "original_lines_after_teaching_comments_removed"
     },
     {
       "note": "opencode/04-llm-streaming.md",
       "excerpt": 3,
       "source": "https://raw.githubusercontent.com/anomalyco/opencode/60a212c0769acd96b446acbadeb790486830f91d/packages/core/src/session/runner/retry.ts",
-      "actual_start": 75,
-      "actual_end": 90
+      "actual_start": 78,
+      "actual_end": 90,
+      "kind": "annotated-source",
+      "annotation_lines": 3,
+      "comparison": "original_lines_after_teaching_comments_removed"
     },
     {
       "note": "opencode/05-extension-architecture.md",
       "excerpt": 1,
+      "source": "https://raw.githubusercontent.com/anomalyco/opencode/60a212c0769acd96b446acbadeb790486830f91d/packages/core/src/state.ts",
+      "actual_start": 172,
+      "actual_end": 184,
+      "kind": "annotated-source",
+      "annotation_lines": 3,
+      "comparison": "original_lines_after_teaching_comments_removed"
+    },
+    {
+      "note": "opencode/05-extension-architecture.md",
+      "excerpt": 2,
       "source": "https://raw.githubusercontent.com/anomalyco/opencode/60a212c0769acd96b446acbadeb790486830f91d/packages/core/src/plugin/supervisor.ts",
       "actual_start": 79,
-      "actual_end": 91
-    },
-    {
-      "note": "opencode/05-extension-architecture.md",
-      "excerpt": 2,
-      "source": "https://raw.githubusercontent.com/anomalyco/opencode/60a212c0769acd96b446acbadeb790486830f91d/packages/core/src/plugin/supervisor.ts",
-      "actual_start": 104,
-      "actual_end": 107
-    },
-    {
-      "note": "opencode/05-extension-architecture.md",
-      "excerpt": 3,
-      "source": "https://raw.githubusercontent.com/anomalyco/opencode/60a212c0769acd96b446acbadeb790486830f91d/packages/core/src/plugin/supervisor.ts",
-      "actual_start": 135,
-      "actual_end": 145
+      "actual_end": 90,
+      "kind": "annotated-source",
+      "annotation_lines": 2,
+      "comparison": "original_lines_after_teaching_comments_removed"
     },
     {
       "note": "opencode/06-task-orchestration.md",
       "excerpt": 1,
-      "source": "https://raw.githubusercontent.com/anomalyco/opencode/60a212c0769acd96b446acbadeb790486830f91d/packages/core/src/tool/plugin/subagent.ts",
-      "actual_start": 184,
-      "actual_end": 198
-    },
-    {
-      "note": "opencode/06-task-orchestration.md",
-      "excerpt": 2,
       "source": "https://raw.githubusercontent.com/anomalyco/opencode/60a212c0769acd96b446acbadeb790486830f91d/packages/core/src/tool/plugin/subagent.ts",
       "actual_start": 203,
-      "actual_end": 218
+      "actual_end": 213,
+      "kind": "annotated-source",
+      "annotation_lines": 2,
+      "comparison": "original_lines_after_teaching_comments_removed"
     },
     {
       "note": "opencode/06-task-orchestration.md",
-      "excerpt": 3,
+      "excerpt": 2,
       "source": "https://raw.githubusercontent.com/anomalyco/opencode/60a212c0769acd96b446acbadeb790486830f91d/packages/core/src/tool/plugin/subagent.ts",
       "actual_start": 234,
-      "actual_end": 244
+      "actual_end": 244,
+      "kind": "annotated-source",
+      "annotation_lines": 2,
+      "comparison": "original_lines_after_teaching_comments_removed"
     },
     {
       "note": "opencode/07-persistence-reliability.md",
       "excerpt": 1,
       "source": "https://raw.githubusercontent.com/anomalyco/opencode/60a212c0769acd96b446acbadeb790486830f91d/packages/core/src/session/execution.ts",
-      "actual_start": 81,
-      "actual_end": 86
+      "actual_start": 76,
+      "actual_end": 86,
+      "kind": "annotated-source",
+      "annotation_lines": 2,
+      "comparison": "original_lines_after_teaching_comments_removed"
     },
     {
       "note": "opencode/07-persistence-reliability.md",
       "excerpt": 2,
       "source": "https://raw.githubusercontent.com/anomalyco/opencode/60a212c0769acd96b446acbadeb790486830f91d/packages/core/src/session/execution.ts",
-      "actual_start": 111,
-      "actual_end": 119
-    },
-    {
-      "note": "opencode/07-persistence-reliability.md",
-      "excerpt": 3,
-      "source": "https://raw.githubusercontent.com/anomalyco/opencode/60a212c0769acd96b446acbadeb790486830f91d/packages/core/src/session/execution.ts",
-      "actual_start": 124,
-      "actual_end": 137
+      "actual_start": 128,
+      "actual_end": 136,
+      "kind": "annotated-source",
+      "annotation_lines": 2,
+      "comparison": "original_lines_after_teaching_comments_removed"
     },
     {
       "note": "opencode/08-observability-evaluation.md",
       "excerpt": 1,
       "source": "https://raw.githubusercontent.com/anomalyco/opencode/60a212c0769acd96b446acbadeb790486830f91d/packages/server/src/event-feed.ts",
       "actual_start": 48,
-      "actual_end": 62
+      "actual_end": 54,
+      "kind": "annotated-source",
+      "annotation_lines": 2,
+      "comparison": "original_lines_after_teaching_comments_removed"
     },
     {
       "note": "opencode/08-observability-evaluation.md",
       "excerpt": 2,
       "source": "https://raw.githubusercontent.com/anomalyco/opencode/60a212c0769acd96b446acbadeb790486830f91d/packages/server/src/event-feed.ts",
       "actual_start": 63,
-      "actual_end": 68
+      "actual_end": 68,
+      "kind": "annotated-source",
+      "annotation_lines": 3,
+      "comparison": "original_lines_after_teaching_comments_removed"
     },
     {
-      "note": "opencode/08-observability-evaluation.md",
-      "excerpt": 3,
-      "source": "https://raw.githubusercontent.com/anomalyco/opencode/60a212c0769acd96b446acbadeb790486830f91d/packages/server/src/event-feed.ts",
-      "actual_start": 74,
-      "actual_end": 80
+      "note": "dsh/00-architecture.md",
+      "excerpt": 1,
+      "source": "https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/d743267388641bc76f17c45ce8b4c231aed1d32c/packages/bundle/headless/src/index.ts",
+      "actual_start": 379,
+      "actual_end": 390,
+      "kind": "annotated-source",
+      "annotation_lines": 3,
+      "comparison": "original_lines_after_teaching_comments_removed"
+    },
+    {
+      "note": "dsh/00-architecture.md",
+      "excerpt": 2,
+      "source": "https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/d743267388641bc76f17c45ce8b4c231aed1d32c/packages/core/agent-loop/src/index.ts",
+      "actual_start": 342,
+      "actual_end": 342,
+      "kind": "annotated-source",
+      "annotation_lines": 1,
+      "comparison": "original_lines_after_teaching_comments_removed"
     },
     {
       "note": "dsh/01-agent-loop.md",
       "excerpt": 1,
       "source": "https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/d743267388641bc76f17c45ce8b4c231aed1d32c/packages/core/agent-loop/src/agent.ts",
       "actual_start": 163,
-      "actual_end": 173
+      "actual_end": 173,
+      "kind": "annotated-source",
+      "annotation_lines": 3,
+      "comparison": "original_lines_after_teaching_comments_removed"
     },
     {
       "note": "dsh/01-agent-loop.md",
       "excerpt": 2,
       "source": "https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/d743267388641bc76f17c45ce8b4c231aed1d32c/packages/core/agent-loop/src/agent.ts",
       "actual_start": 318,
-      "actual_end": 331
-    },
-    {
-      "note": "dsh/01-agent-loop.md",
-      "excerpt": 3,
-      "source": "https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/d743267388641bc76f17c45ce8b4c231aed1d32c/packages/core/agent-loop/src/agent.ts",
-      "actual_start": 344,
-      "actual_end": 359
+      "actual_end": 328,
+      "kind": "annotated-source",
+      "annotation_lines": 3,
+      "comparison": "original_lines_after_teaching_comments_removed"
     },
     {
       "note": "dsh/02-context-session.md",
       "excerpt": 1,
-      "source": "https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/d743267388641bc76f17c45ce8b4c231aed1d32c/packages/core/session/src/index.ts",
-      "actual_start": 808,
-      "actual_end": 826
+      "source": "https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/d743267388641bc76f17c45ce8b4c231aed1d32c/packages/core/session/src/surface.ts",
+      "actual_start": 567,
+      "actual_end": 576,
+      "kind": "annotated-source",
+      "annotation_lines": 4,
+      "comparison": "original_lines_after_teaching_comments_removed"
     },
     {
       "note": "dsh/02-context-session.md",
       "excerpt": 2,
       "source": "https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/d743267388641bc76f17c45ce8b4c231aed1d32c/packages/core/session/src/index.ts",
-      "actual_start": 876,
-      "actual_end": 897
-    },
-    {
-      "note": "dsh/02-context-session.md",
-      "excerpt": 3,
-      "source": "https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/d743267388641bc76f17c45ce8b4c231aed1d32c/packages/core/session/src/index.ts",
-      "actual_start": 984,
-      "actual_end": 1005
+      "actual_start": 993,
+      "actual_end": 1004,
+      "kind": "annotated-source",
+      "annotation_lines": 3,
+      "comparison": "original_lines_after_teaching_comments_removed"
     },
     {
       "note": "dsh/03-tools-sandbox.md",
       "excerpt": 1,
+      "source": "https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/d743267388641bc76f17c45ce8b4c231aed1d32c/packages/core/agent-loop/src/tool-calls.ts",
+      "actual_start": 148,
+      "actual_end": 159,
+      "kind": "annotated-source",
+      "annotation_lines": 4,
+      "comparison": "original_lines_after_teaching_comments_removed"
+    },
+    {
+      "note": "dsh/03-tools-sandbox.md",
+      "excerpt": 2,
       "source": "https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/d743267388641bc76f17c45ce8b4c231aed1d32c/packages/core/agent-loop/src/tool-calls.ts",
       "actual_start": 199,
-      "actual_end": 214
-    },
-    {
-      "note": "dsh/03-tools-sandbox.md",
-      "excerpt": 2,
-      "source": "https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/d743267388641bc76f17c45ce8b4c231aed1d32c/packages/core/agent-loop/src/tool-calls.ts",
-      "actual_start": 147,
-      "actual_end": 161
-    },
-    {
-      "note": "dsh/03-tools-sandbox.md",
-      "excerpt": 3,
-      "source": "https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/d743267388641bc76f17c45ce8b4c231aed1d32c/packages/core/agent-loop/src/tool-calls.ts",
-      "actual_start": 232,
-      "actual_end": 243
+      "actual_end": 209,
+      "kind": "annotated-source",
+      "annotation_lines": 3,
+      "comparison": "original_lines_after_teaching_comments_removed"
     },
     {
       "note": "dsh/04-llm-streaming.md",
       "excerpt": 1,
-      "source": "https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/d743267388641bc76f17c45ce8b4c231aed1d32c/packages/core/agent-loop/src/agent.ts",
-      "actual_start": 410,
-      "actual_end": 421
+      "source": "https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/d743267388641bc76f17c45ce8b4c231aed1d32c/packages/core/agent-loop/src/assistant-stream.ts",
+      "actual_start": 83,
+      "actual_end": 96,
+      "kind": "annotated-source",
+      "annotation_lines": 3,
+      "comparison": "original_lines_after_teaching_comments_removed"
     },
     {
       "note": "dsh/04-llm-streaming.md",
       "excerpt": 2,
-      "source": "https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/d743267388641bc76f17c45ce8b4c231aed1d32c/packages/core/agent-loop/src/agent.ts",
-      "actual_start": 453,
-      "actual_end": 461
-    },
-    {
-      "note": "dsh/04-llm-streaming.md",
-      "excerpt": 3,
-      "source": "https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/d743267388641bc76f17c45ce8b4c231aed1d32c/packages/core/agent-loop/src/agent.ts",
-      "actual_start": 505,
-      "actual_end": 527
+      "source": "https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/d743267388641bc76f17c45ce8b4c231aed1d32c/packages/llm/llm-deepseek/src/adapter.ts",
+      "actual_start": 43,
+      "actual_end": 49,
+      "kind": "annotated-source",
+      "annotation_lines": 2,
+      "comparison": "original_lines_after_teaching_comments_removed"
     },
     {
       "note": "dsh/05-extension-architecture.md",
       "excerpt": 1,
-      "source": "https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/d743267388641bc76f17c45ce8b4c231aed1d32c/packages/core/agent-loop/src/index.ts",
-      "actual_start": 145,
-      "actual_end": 158
+      "source": "https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/d743267388641bc76f17c45ce8b4c231aed1d32c/packages/fs/tool-fs/src/read.ts",
+      "actual_start": 137,
+      "actual_end": 147,
+      "kind": "annotated-source",
+      "annotation_lines": 2,
+      "comparison": "original_lines_after_teaching_comments_removed"
     },
     {
       "note": "dsh/05-extension-architecture.md",
       "excerpt": 2,
       "source": "https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/d743267388641bc76f17c45ce8b4c231aed1d32c/packages/core/agent-loop/src/index.ts",
-      "actual_start": 178,
-      "actual_end": 199
+      "actual_start": 189,
+      "actual_end": 198,
+      "kind": "annotated-source",
+      "annotation_lines": 3,
+      "comparison": "original_lines_after_teaching_comments_removed"
     },
     {
       "note": "dsh/06-task-orchestration.md",
       "excerpt": 1,
-      "source": "https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/d743267388641bc76f17c45ce8b4c231aed1d32c/packages/goal/goal-round-driver/src/index.ts",
-      "actual_start": 97,
-      "actual_end": 109
-    },
-    {
-      "note": "dsh/06-task-orchestration.md",
-      "excerpt": 2,
       "source": "https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/d743267388641bc76f17c45ce8b4c231aed1d32c/packages/goal/goal-round-driver/src/index.ts",
       "actual_start": 142,
-      "actual_end": 154
+      "actual_end": 154,
+      "kind": "annotated-source",
+      "annotation_lines": 3,
+      "comparison": "original_lines_after_teaching_comments_removed"
     },
     {
       "note": "dsh/06-task-orchestration.md",
-      "excerpt": 3,
+      "excerpt": 2,
       "source": "https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/d743267388641bc76f17c45ce8b4c231aed1d32c/packages/goal/goal-round-driver/src/index.ts",
-      "actual_start": 164,
-      "actual_end": 179
+      "actual_start": 264,
+      "actual_end": 270,
+      "kind": "annotated-source",
+      "annotation_lines": 2,
+      "comparison": "original_lines_after_teaching_comments_removed"
     },
     {
       "note": "dsh/07-persistence-reliability.md",
       "excerpt": 1,
-      "source": "https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/d743267388641bc76f17c45ce8b4c231aed1d32c/packages/session/session-checkpoint-policy/src/index.ts",
-      "actual_start": 29,
-      "actual_end": 38
+      "source": "https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/d743267388641bc76f17c45ce8b4c231aed1d32c/packages/core/agent-loop/src/index.ts",
+      "actual_start": 876,
+      "actual_end": 883,
+      "kind": "annotated-source",
+      "annotation_lines": 2,
+      "comparison": "original_lines_after_teaching_comments_removed"
     },
     {
       "note": "dsh/07-persistence-reliability.md",
       "excerpt": 2,
-      "source": "https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/d743267388641bc76f17c45ce8b4c231aed1d32c/packages/session/session-checkpoint-policy/src/index.ts",
-      "actual_start": 64,
-      "actual_end": 68
-    },
-    {
-      "note": "dsh/07-persistence-reliability.md",
-      "excerpt": 3,
       "source": "https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/d743267388641bc76f17c45ce8b4c231aed1d32c/packages/session/session-checkpoint-policy/src/index.ts",
       "actual_start": 70,
-      "actual_end": 82
+      "actual_end": 75,
+      "kind": "annotated-source",
+      "annotation_lines": 3,
+      "comparison": "original_lines_after_teaching_comments_removed"
     },
     {
       "note": "dsh/08-observability-evaluation.md",
       "excerpt": 1,
       "source": "https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/d743267388641bc76f17c45ce8b4c231aed1d32c/packages/session/session-telemetry/src/coordinator.ts",
-      "actual_start": 151,
-      "actual_end": 164
+      "actual_start": 183,
+      "actual_end": 194,
+      "kind": "annotated-source",
+      "annotation_lines": 3,
+      "comparison": "original_lines_after_teaching_comments_removed"
     },
     {
       "note": "dsh/08-observability-evaluation.md",
       "excerpt": 2,
       "source": "https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/d743267388641bc76f17c45ce8b4c231aed1d32c/packages/session/session-telemetry/src/coordinator.ts",
-      "actual_start": 205,
-      "actual_end": 213
-    },
-    {
-      "note": "dsh/08-observability-evaluation.md",
-      "excerpt": 3,
-      "source": "https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/d743267388641bc76f17c45ce8b4c231aed1d32c/packages/session/session-telemetry/src/coordinator.ts",
-      "actual_start": 246,
-      "actual_end": 252
+      "actual_start": 209,
+      "actual_end": 213,
+      "kind": "annotated-source",
+      "annotation_lines": 2,
+      "comparison": "original_lines_after_teaching_comments_removed"
     }
-  ]
+  ],
+  "scope": "Markdown links and pinned source equality (fetched or cached). Source blocks match verbatim; annotated-source blocks match after removing only standalone // 笔记： teaching comments. No upstream execution, explanation or annotation correctness validation."
 }

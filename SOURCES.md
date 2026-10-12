@@ -1,64 +1,74 @@
-# 官方源码索引
+# 源码地图与摘录索引
 
-[总目录](README.md) · [版本锁](source-lock.json)
+[总目录](README.md) · [实际阅读记录](research/reread/README.md) · [版本锁](source-lock.json)
 
-本版的代码块直接摘录自以下 **24 个不同源码/测试文件**。每篇标明实际定位范围，`source` 标记对应紧随其后的代码块；核验脚本输出准确匹配行。此清单不是全仓库审计，也不表示每个文件都全文读完。
+先读 [Codex 整体架构](codex/00-architecture.md)、[OpenCode 整体架构](opencode/00-architecture.md) 或 [DSH 整体架构](dsh/00-architecture.md)，再按下表查找专题摘录。表格覆盖 24 篇专题选择的原码位置，不是全部阅读文件清单；架构篇的调用链证据另在各篇就近列出。完整阅读路径见[重读记录](research/reread/README.md)。
 
-## Codex｜10 个节选来源
+## codex
 
-统一前缀 `codex-rs/`，固定 Commit `a9b0815167c27ab13719dd12d13b63e02b70d221`。
+架构入口：[执行内核说明](https://github.com/openai/codex/blob/a9b0815167c27ab13719dd12d13b63e02b70d221/codex-rs/core/README.md)。固定版本 `a9b0815167c27ab13719dd12d13b63e02b70d221`。
 
-| 源码 | 核对范围 | 用于专题 |
+| 摘录文件 | 定位范围 | 主笔记 |
 |---|---|---|
-| `core/src/session/turn.rs` | 420–560 | 01 |
-| `core/src/compact.rs` | 66–130 | 02 |
-| `core/src/tools/orchestrator.rs` | 173–231 | 03 |
-| `core/src/tools/parallel.rs` | 190–285 | 03、08 |
-| `core/src/client.rs` | 259–365 | 04 |
-| `ext/extension-api/src/registry.rs` | 135–225 | 05 |
-| `core/src/agent/control/spawn.rs` | 310–372 | 06 |
-| `core/src/session/daemon_recovery.rs` | 文件开头至末尾 | 07 |
-| `thread-store/src/store.rs` | 1–230，节选策略和持久化接口 | 07 |
-| `core/tests/suite/tool_parallelism.rs` | 93–177 | 08 |
+| `codex-rs/app-server/src/request_processors/daemon_continuation.rs` | [L74–L87](https://github.com/openai/codex/blob/a9b0815167c27ab13719dd12d13b63e02b70d221/codex-rs/app-server/src/request_processors/daemon_continuation.rs#L74-L87) | [07](codex/07-persistence-reliability.md) |
+| `codex-rs/app-server/src/request_processors/daemon_snapshot.rs` | [L30–L40](https://github.com/openai/codex/blob/a9b0815167c27ab13719dd12d13b63e02b70d221/codex-rs/app-server/src/request_processors/daemon_snapshot.rs#L30-L40) | [07](codex/07-persistence-reliability.md) |
+| `codex-rs/app-server/src/turn_admission.rs` | [L52–L62](https://github.com/openai/codex/blob/a9b0815167c27ab13719dd12d13b63e02b70d221/codex-rs/app-server/src/turn_admission.rs#L52-L62) | [05](codex/05-extension-architecture.md) |
+| `codex-rs/core/src/agent/control/api.rs` | [L112–L120](https://github.com/openai/codex/blob/a9b0815167c27ab13719dd12d13b63e02b70d221/codex-rs/core/src/agent/control/api.rs#L112-L120) | [06](codex/06-task-orchestration.md) |
+| `codex-rs/core/src/agent/control/spawn.rs` | [L326–L338](https://github.com/openai/codex/blob/a9b0815167c27ab13719dd12d13b63e02b70d221/codex-rs/core/src/agent/control/spawn.rs#L326-L338) | [06](codex/06-task-orchestration.md) |
+| `codex-rs/core/src/client.rs` | [L669–L681](https://github.com/openai/codex/blob/a9b0815167c27ab13719dd12d13b63e02b70d221/codex-rs/core/src/client.rs#L669-L681)、[L1486–L1500](https://github.com/openai/codex/blob/a9b0815167c27ab13719dd12d13b63e02b70d221/codex-rs/core/src/client.rs#L1486-L1500) | [04](codex/04-llm-streaming.md) |
+| `codex-rs/core/src/compact.rs` | [L86–L95](https://github.com/openai/codex/blob/a9b0815167c27ab13719dd12d13b63e02b70d221/codex-rs/core/src/compact.rs#L86-L95) | [02](codex/02-context-session.md) |
+| `codex-rs/core/src/session/mod.rs` | [L4213–L4226](https://github.com/openai/codex/blob/a9b0815167c27ab13719dd12d13b63e02b70d221/codex-rs/core/src/session/mod.rs#L4213-L4226) | [02](codex/02-context-session.md) |
+| `codex-rs/core/src/session/turn.rs` | [L429–L436](https://github.com/openai/codex/blob/a9b0815167c27ab13719dd12d13b63e02b70d221/codex-rs/core/src/session/turn.rs#L429-L436) | [01](codex/01-agent-loop.md) |
+| `codex-rs/core/src/tools/parallel.rs` | [L45–L52](https://github.com/openai/codex/blob/a9b0815167c27ab13719dd12d13b63e02b70d221/codex-rs/core/src/tools/parallel.rs#L45-L52)、[L213–L224](https://github.com/openai/codex/blob/a9b0815167c27ab13719dd12d13b63e02b70d221/codex-rs/core/src/tools/parallel.rs#L213-L224)、[L260–L272](https://github.com/openai/codex/blob/a9b0815167c27ab13719dd12d13b63e02b70d221/codex-rs/core/src/tools/parallel.rs#L260-L272) | [01](codex/01-agent-loop.md)、[03](codex/03-tools-sandbox.md) |
+| `codex-rs/ext/extension-api/src/registry.rs` | [L112–L125](https://github.com/openai/codex/blob/a9b0815167c27ab13719dd12d13b63e02b70d221/codex-rs/ext/extension-api/src/registry.rs#L112-L125) | [05](codex/05-extension-architecture.md) |
+| `codex-rs/rollout-trace/src/thread.rs` | [L106–L118](https://github.com/openai/codex/blob/a9b0815167c27ab13719dd12d13b63e02b70d221/codex-rs/rollout-trace/src/thread.rs#L106-L118) | [08](codex/08-observability-evaluation.md) |
+| `codex-rs/rollout-trace/src/writer.rs` | [L91–L105](https://github.com/openai/codex/blob/a9b0815167c27ab13719dd12d13b63e02b70d221/codex-rs/rollout-trace/src/writer.rs#L91-L105) | [08](codex/08-observability-evaluation.md) |
 
-入口：[固定 Codex 源码树](https://github.com/openai/codex/tree/a9b0815167c27ab13719dd12d13b63e02b70d221/codex-rs)。测试文件只做源码阅读，没有在本轮运行。辅助阅读包括 ThreadStore、Exec Server、Rollout Trace 的官方 README，各篇给出固定链接。
+完整阅读范围：[01–04](research/reread/codex-01-04.md)、[05–08](research/reread/codex-05-08.md)。
 
-## OpenCode｜7 个节选来源
+## opencode
 
-统一前缀 `packages/`，固定 Commit `60a212c0769acd96b446acbadeb790486830f91d`。
+架构入口：[V2 模块分工](https://github.com/anomalyco/opencode/blob/60a212c0769acd96b446acbadeb790486830f91d/specs/v2/README.md)。固定版本 `60a212c0769acd96b446acbadeb790486830f91d`。
 
-| 源码 | 核对范围 | 用于专题 |
+| 摘录文件 | 定位范围 | 主笔记 |
 |---|---|---|
-| `core/src/session/execution.ts` | 66–182 | 01、07 |
-| `core/src/session/runner/llm.ts` | 165–282 | 01、02 |
-| `core/src/session/runner/step.ts` | 86–150 | 03 |
-| `core/src/session/runner/retry.ts` | 25–109 | 04 |
-| `core/src/plugin/supervisor.ts` | 65–168 | 05 |
-| `core/src/tool/plugin/subagent.ts` | 166–269 | 06 |
-| `server/src/event-feed.ts` | 文件开头至末尾 | 08 |
+| `packages/core/src/plugin/supervisor.ts` | [L79–L90](https://github.com/anomalyco/opencode/blob/60a212c0769acd96b446acbadeb790486830f91d/packages/core/src/plugin/supervisor.ts#L79-L90) | [05](opencode/05-extension-architecture.md) |
+| `packages/core/src/session/execution.ts` | [L76–L86](https://github.com/anomalyco/opencode/blob/60a212c0769acd96b446acbadeb790486830f91d/packages/core/src/session/execution.ts#L76-L86)、[L128–L136](https://github.com/anomalyco/opencode/blob/60a212c0769acd96b446acbadeb790486830f91d/packages/core/src/session/execution.ts#L128-L136) | [07](opencode/07-persistence-reliability.md) |
+| `packages/core/src/session/history.ts` | [L83–L95](https://github.com/anomalyco/opencode/blob/60a212c0769acd96b446acbadeb790486830f91d/packages/core/src/session/history.ts#L83-L95) | [02](opencode/02-context-session.md) |
+| `packages/core/src/session/run-coordinator.ts` | [L136–L145](https://github.com/anomalyco/opencode/blob/60a212c0769acd96b446acbadeb790486830f91d/packages/core/src/session/run-coordinator.ts#L136-L145) | [01](opencode/01-agent-loop.md) |
+| `packages/core/src/session/runner/llm.ts` | [L165–L173](https://github.com/anomalyco/opencode/blob/60a212c0769acd96b446acbadeb790486830f91d/packages/core/src/session/runner/llm.ts#L165-L173)、[L206–L217](https://github.com/anomalyco/opencode/blob/60a212c0769acd96b446acbadeb790486830f91d/packages/core/src/session/runner/llm.ts#L206-L217)、[L278–L286](https://github.com/anomalyco/opencode/blob/60a212c0769acd96b446acbadeb790486830f91d/packages/core/src/session/runner/llm.ts#L278-L286) | [01](opencode/01-agent-loop.md)、[02](opencode/02-context-session.md)、[04](opencode/04-llm-streaming.md) |
+| `packages/core/src/session/runner/publish-llm-event.ts` | [L586–L595](https://github.com/anomalyco/opencode/blob/60a212c0769acd96b446acbadeb790486830f91d/packages/core/src/session/runner/publish-llm-event.ts#L586-L595) | [03](opencode/03-tools-sandbox.md) |
+| `packages/core/src/session/runner/retry.ts` | [L78–L90](https://github.com/anomalyco/opencode/blob/60a212c0769acd96b446acbadeb790486830f91d/packages/core/src/session/runner/retry.ts#L78-L90) | [04](opencode/04-llm-streaming.md) |
+| `packages/core/src/session/runner/step.ts` | [L204–L209](https://github.com/anomalyco/opencode/blob/60a212c0769acd96b446acbadeb790486830f91d/packages/core/src/session/runner/step.ts#L204-L209) | [04](opencode/04-llm-streaming.md) |
+| `packages/core/src/state.ts` | [L172–L184](https://github.com/anomalyco/opencode/blob/60a212c0769acd96b446acbadeb790486830f91d/packages/core/src/state.ts#L172-L184) | [05](opencode/05-extension-architecture.md) |
+| `packages/core/src/tool.ts` | [L225–L235](https://github.com/anomalyco/opencode/blob/60a212c0769acd96b446acbadeb790486830f91d/packages/core/src/tool.ts#L225-L235) | [03](opencode/03-tools-sandbox.md) |
+| `packages/core/src/tool/plugin/subagent.ts` | [L203–L213](https://github.com/anomalyco/opencode/blob/60a212c0769acd96b446acbadeb790486830f91d/packages/core/src/tool/plugin/subagent.ts#L203-L213)、[L234–L244](https://github.com/anomalyco/opencode/blob/60a212c0769acd96b446acbadeb790486830f91d/packages/core/src/tool/plugin/subagent.ts#L234-L244) | [06](opencode/06-task-orchestration.md) |
+| `packages/server/src/event-feed.ts` | [L48–L54](https://github.com/anomalyco/opencode/blob/60a212c0769acd96b446acbadeb790486830f91d/packages/server/src/event-feed.ts#L48-L54)、[L63–L68](https://github.com/anomalyco/opencode/blob/60a212c0769acd96b446acbadeb790486830f91d/packages/server/src/event-feed.ts#L63-L68) | [08](opencode/08-observability-evaluation.md) |
 
-入口：[固定 OpenCode 源码树](https://github.com/anomalyco/opencode/tree/60a212c0769acd96b446acbadeb790486830f91d/packages)。辅助阅读包括 `specs/v2/session.md`、`tools.md`、事件流设计、历史 Catalog 决策记录和 EventFeed 测试；历史方案不当作当前 API。
+完整阅读范围：[01–04](research/reread/opencode-01-04.md)、[05–08](research/reread/opencode-05-08.md)。
 
-## DSH｜7 个节选来源
+## dsh
 
-统一前缀 `packages/`，固定 Commit `d743267388641bc76f17c45ce8b4c231aed1d32c`。
+架构入口：[插件装配与执行流程](https://github.com/deepseek-ai/deepseek-harness/blob/d743267388641bc76f17c45ce8b4c231aed1d32c/docs/architecture.md)。固定版本 `d743267388641bc76f17c45ce8b4c231aed1d32c`。
 
-| 源码 | 核对范围 | 用于专题 |
+| 摘录文件 | 定位范围 | 主笔记 |
 |---|---|---|
-| `core/agent-loop/src/agent.ts` | 156–191、307–541 | 01、04 |
-| `core/session/src/index.ts` | 800–1020，另读类型校验上下文 | 02 |
-| `core/agent-loop/src/tool-calls.ts` | 140–250 | 03 |
-| `core/agent-loop/src/index.ts` | 110–222 | 05 |
-| `goal/goal-round-driver/src/index.ts` | 88–199 | 06 |
-| `session/session-checkpoint-policy/src/index.ts` | 文件开头至末尾 | 07 |
-| `session/session-telemetry/src/coordinator.ts` | 1–270，节选捕获/交接/隔离方法 | 08 |
+| `packages/core/agent-loop/src/agent.ts` | [L163–L173](https://github.com/deepseek-ai/deepseek-harness/blob/d743267388641bc76f17c45ce8b4c231aed1d32c/packages/core/agent-loop/src/agent.ts#L163-L173)、[L318–L328](https://github.com/deepseek-ai/deepseek-harness/blob/d743267388641bc76f17c45ce8b4c231aed1d32c/packages/core/agent-loop/src/agent.ts#L318-L328) | [01](dsh/01-agent-loop.md) |
+| `packages/core/agent-loop/src/assistant-stream.ts` | [L83–L96](https://github.com/deepseek-ai/deepseek-harness/blob/d743267388641bc76f17c45ce8b4c231aed1d32c/packages/core/agent-loop/src/assistant-stream.ts#L83-L96) | [04](dsh/04-llm-streaming.md) |
+| `packages/core/agent-loop/src/index.ts` | [L189–L198](https://github.com/deepseek-ai/deepseek-harness/blob/d743267388641bc76f17c45ce8b4c231aed1d32c/packages/core/agent-loop/src/index.ts#L189-L198)、[L876–L883](https://github.com/deepseek-ai/deepseek-harness/blob/d743267388641bc76f17c45ce8b4c231aed1d32c/packages/core/agent-loop/src/index.ts#L876-L883) | [05](dsh/05-extension-architecture.md)、[07](dsh/07-persistence-reliability.md) |
+| `packages/core/agent-loop/src/tool-calls.ts` | [L148–L159](https://github.com/deepseek-ai/deepseek-harness/blob/d743267388641bc76f17c45ce8b4c231aed1d32c/packages/core/agent-loop/src/tool-calls.ts#L148-L159)、[L199–L209](https://github.com/deepseek-ai/deepseek-harness/blob/d743267388641bc76f17c45ce8b4c231aed1d32c/packages/core/agent-loop/src/tool-calls.ts#L199-L209) | [03](dsh/03-tools-sandbox.md) |
+| `packages/core/session/src/index.ts` | [L993–L1004](https://github.com/deepseek-ai/deepseek-harness/blob/d743267388641bc76f17c45ce8b4c231aed1d32c/packages/core/session/src/index.ts#L993-L1004) | [02](dsh/02-context-session.md) |
+| `packages/core/session/src/surface.ts` | [L567–L576](https://github.com/deepseek-ai/deepseek-harness/blob/d743267388641bc76f17c45ce8b4c231aed1d32c/packages/core/session/src/surface.ts#L567-L576) | [02](dsh/02-context-session.md) |
+| `packages/fs/tool-fs/src/read.ts` | [L137–L147](https://github.com/deepseek-ai/deepseek-harness/blob/d743267388641bc76f17c45ce8b4c231aed1d32c/packages/fs/tool-fs/src/read.ts#L137-L147) | [05](dsh/05-extension-architecture.md) |
+| `packages/goal/goal-round-driver/src/index.ts` | [L142–L154](https://github.com/deepseek-ai/deepseek-harness/blob/d743267388641bc76f17c45ce8b4c231aed1d32c/packages/goal/goal-round-driver/src/index.ts#L142-L154)、[L264–L270](https://github.com/deepseek-ai/deepseek-harness/blob/d743267388641bc76f17c45ce8b4c231aed1d32c/packages/goal/goal-round-driver/src/index.ts#L264-L270) | [06](dsh/06-task-orchestration.md) |
+| `packages/llm/llm-deepseek/src/adapter.ts` | [L43–L49](https://github.com/deepseek-ai/deepseek-harness/blob/d743267388641bc76f17c45ce8b4c231aed1d32c/packages/llm/llm-deepseek/src/adapter.ts#L43-L49) | [04](dsh/04-llm-streaming.md) |
+| `packages/session/session-checkpoint-policy/src/index.ts` | [L70–L75](https://github.com/deepseek-ai/deepseek-harness/blob/d743267388641bc76f17c45ce8b4c231aed1d32c/packages/session/session-checkpoint-policy/src/index.ts#L70-L75) | [07](dsh/07-persistence-reliability.md) |
+| `packages/session/session-telemetry/src/coordinator.ts` | [L183–L194](https://github.com/deepseek-ai/deepseek-harness/blob/d743267388641bc76f17c45ce8b4c231aed1d32c/packages/session/session-telemetry/src/coordinator.ts#L183-L194)、[L209–L213](https://github.com/deepseek-ai/deepseek-harness/blob/d743267388641bc76f17c45ce8b4c231aed1d32c/packages/session/session-telemetry/src/coordinator.ts#L209-L213) | [08](dsh/08-observability-evaluation.md) |
 
-入口：[固定 DSH 源码树](https://github.com/deepseek-ai/deepseek-harness/tree/d743267388641bc76f17c45ce8b4c231aed1d32c/packages)。辅助阅读包括 Session、Persistence、Sandbox、Compaction、LLM、Goal、Subagent、Telemetry 的接口/文档。其中 telemetry service 的 `src/index.ts` 也已展开，但不含本版代码节选，故不计入上表。
+完整阅读范围：[01–04](research/reread/dsh-01-04.md)、[05–08](research/reread/dsh-05-08.md)。
 
-## 引用方法与边界
+## 怎样核验
 
-代码块中的内容保留原始语言、变量与注释。外层笔记重新组织顺序、选择片段并附中文解释；不声称每段都能单独编译。每段的定位范围可以略宽于实际代码块，联网核验会返回实际起止行。
+每段代码前的 `source` 或 `annotated-source` 标记包含完整提交与行号。原文块只规范换行；注解块额外去掉独立的 `// 笔记：` 注释行。其他代码、缩进与上游注释仍须一致，不把改写后的伪代码当作原文。默认联网读取固定文件；也可使用已下载且带版本标记的源码目录进行本地比对，报告区分两种模式。
 
-自动比对只规范 CRLF/LF，不忽略缩进或代码改写。行号范围以固定提交文件为准，不是连接器外层 JSON 的行号。联网失败不得标记一致性通过。
-
-源码、注释和设计文档可能不同步，差异见 [ERRATA.md](ERRATA.md)。未经读取的实现不补成事实；架构分析与实验假设放在代码块外。版权归属与许可证副本见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+阅读上游测试不等于运行通过；片段匹配不等于所有解释正确。方法见 [证据说明](RESEARCH_METHOD.md)，许可见 [第三方声明](THIRD_PARTY_NOTICES.md)。

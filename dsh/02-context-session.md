@@ -1,153 +1,54 @@
-# DSH 02｜为什么采用事件日志＋Surface，以及增量缓存没有消除哪些成本？
+# DSH 02｜上下文管理：事件日志与模型视图
 
-[总目录](../README.md) · [设计索引](../DESIGN_INDEX.md) · [研究方法与证据](../RESEARCH_METHOD.md)
+[总目录](../README.md) · [先读导览](../START_HERE.md) · [项目架构](00-architecture.md) · [问题索引](../DESIGN_INDEX.md)
 
-**设计研究版 v3｜研究日期：2026-10-12｜固定源码：`deepseek-ai/deepseek-harness@d743267388641bc76f17c45ce8b4c231aed1d32c`。** 下面先论证需求、反例、候选方案与代价，再展开真实源码。作者明示理由、文档契约和研究推导分别标注；上游运行实验仍为待运行。
+代码中 `// 笔记：` 为新增中文注释，其余保留上游原文。
 
-## 1. 从可变 messages 数组推导需求
+Agent 读了几十个文件，下一次请求装不下全部内容，于是把前半段历史换成摘要。后来它漏掉一个要求：我们需要查清，是原文没有写，还是摘要漏掉了。
 
-若只需当前上下文，一个可变数组最直接：压缩时 splice，更新指令时覆盖。若还要解释过去模型看到了什么、恢复失败尝试、fork 历史并让不同消费者读取同一事实，直接覆盖会抹掉改变发生的原因。
+**要点：保存“发生过什么”，和决定“下一次给模型看什么”，可以用两份不同的视图。**
 
-DSH Session 使用冻结的事件作为事实，Surface 管理当前模型可见节点，deriveMessages 从 Surface 派生消息。[F1][D1] 这是一种为可重建性付出存储和投影复杂度的选择，不是所有聊天系统都应该使用 Event Sourcing。
+DSH 的 `Session` 保留只追加的事件日志；`Surface` 列出当前对模型有效的消息位置；`deriveMessages()` 再把这些位置变成真正的消息数组。默认循环构造每次请求时调用它，而不是直接把全部日志发给模型。
 
-## 2. 决策 D02-D1：为什么事实日志与活动上下文分开？
+<!-- decision: D02-D1 | 为什么日志和当前上下文要分开？ -->
+## Session 日志与 Surface 上下文视图
 
-**反事实：** 压缩后直接将历史替换成摘要，随后模型做出错误决策。维护者无法判断错误来自原始工具结果、摘要丢约束、指令变化还是模型决策。保存替换事实与旧事件，使这些路径有可审计依据。
+假设事件 0、1、2 分别产生消息 A、B、C，当前 Surface 是 `[0, 1, 2]`。追加事件 3，把 A、B 总结成 S 后，日志里四个事件都在，Surface 变成 `[3, 2]`，下一请求看到 S、C。
 
-| 方案 | 适用价值 | 需要承受什么 |
-|---|---|---|
-| 原地修改 messages | 小型当前态应用 | 过去视图和变更原因消失 |
-| 每次保存完整请求快照 | 易审计实际输入 | 重复数据大、索引和身份关联复杂 |
-| 事件＋活动投影 | 复用事实、表达替换过程 | 投影版本、迁移、缓存失效和重建成本 |
-| 仅摘要加外部原文引用 | 阅读型长任务 | 引用可用性、权限和精确请求重建仍需设计 |
+处理替换时，代码改的是 Surface 的位置列表：
 
-append 先 snapshot/validate/freeze，再进入 log 并通知观察者。[F1] **推导：** 如果历史只保存调用者对象引用，调用者事后修改原对象就会悄悄“改写过去”；快照与冻结稳定的是已接纳事实，不是磁盘持久性。`this.log.push` 的 commit 不能当作 fsync。
-
-Surface 顺序也不一定等于事件 seq 数值顺序。新的摘要拥有较大 seq，却可能替换到较早位置；按数值区间删节点会误解多次压缩。Compaction 契约要求理解位置范围与工具配对。[D2]
-
-## 3. 决策 D02-D2：为什么增量投影仍然返回数组快照？
-
-deriveMessages 在 contentGeneration 不变时只处理新增 nodes；generation 变化时重建；最后 `return [...this.derived]`。[F1] 返回新外层数组，避免后续 append 改变调用者已经拿到的快照；内部冻结 Message 可共享，避免重复深拷贝所有内容。
-
-**本轮纠正一个容易误读的复杂度：** 投影计算可为 O(新增节点)，但创建完整返回数组仍需 O(当前消息数) 次引用复制。若每加入一条消息都请求完整数组，总引用复制量可达到 1+2+…+N，即 O(N²)。这是对特定调用模式的分析，不是宣称 DSH 整个任务性能必然平方增长；调用频率、序列化和底层 Surface 访问还会影响实际成本。
-
-| 返回结构 | 好处 | 新的约束 |
-|---|---|---|
-| 直接返回可变内部数组 | 少一次复制 | 调用方观察到后续变化或修改缓存 |
-| 完整深拷贝 | 所有权简单 | 消息内容复制开销大 |
-| 新数组＋共享冻结消息 | 稳定外层快照、内容可复用 | O(N) 引用复制仍存在 |
-| 持久化序列/游标/增量接口 | 避免频繁完整快照 | 消费方协议、版本和迭代失效更复杂 |
-
-因此不能仅因存在缓存就声称“上下文读取是 O(delta)”。也不能仅看到数组复制就认定应改为游标：模型请求常常仍需要完整序列化，优化返回结构可能不是主瓶颈。
-
-## 4. 选择 Event Sourcing 的真实代价
-
-事件不可变使修正通过新事实表达，而不是删除旧错误；这需要 schema 兼容和明确未知事件政策。多消费者共享事件也意味着一个 cardinality 改动可能要迁移同 Session 引用和 fork cut。若所有旧日志都可丢弃，这些约束反而可能没有收益。
-
-发布期间拒绝 reentrant append 是另一种明确选择。[F1] 它保护当前 publication 的顺序假设，却限制了观察者直接写入；插件需要在合适边界提交新事实，而不能随意递归修改。事件驱动不是自动没有控制流，它把控制流移进了发布协议。
-
-## 5. 验证、反例与学习结果
-
-本仓库机制实验分别计数增量投影和数组引用复制，验证两种成本并不相同；也测试替换后只按“log 增长”无法维持旧投影。它不运行 DSH 源码，不提供真实性能数字。
-
-**上游实验待运行：** 修改原输入对象、返回数组和返回的 Message，检查冻结/快照边界；多次 Surface replacement 后比对实际模型历史；对长历史分别量投影、数组构建、序列化、网络与模型耗时。
-
-应带走的判断：稳定事实与当前视图是否值得分离？缓存优化了哪一项工作，剩余工作在哪里？如果业务只需要最后状态、不需要历史解释，原地更新和简单快照可能更合适。
-
-[F1]: https://github.com/deepseek-ai/deepseek-harness/blob/d743267388641bc76f17c45ce8b4c231aed1d32c/packages/core/session/src/index.ts#L790-L1015
-[D1]: https://github.com/deepseek-ai/deepseek-harness/blob/d743267388641bc76f17c45ce8b4c231aed1d32c/docs/subsystems/session.md
-[D2]: https://github.com/deepseek-ai/deepseek-harness/blob/d743267388641bc76f17c45ce8b4c231aed1d32c/docs/subsystems/compaction.md
-
-## 6. 核心源码与逐段核对
-
-以下保留上一版的全部核心源码块及所在导读段；源码、缩进与定位范围不改写。前文设计研究补足其适用前提和反例，特别不能将收益概括误当作运行保证。
-
-### 2. 核心源码 A：写入前先快照、校验并冻结
-
-源码：[`core/session/src/index.ts`，L800–L827](https://github.com/deepseek-ai/deepseek-harness/blob/d743267388641bc76f17c45ce8b4c231aed1d32c/packages/core/session/src/index.ts#L800-L827)。
-
-<!-- source: https://github.com/deepseek-ai/deepseek-harness/blob/d743267388641bc76f17c45ce8b4c231aed1d32c/packages/core/session/src/index.ts#L800-L827 -->
+<!-- annotated-source: https://github.com/deepseek-ai/deepseek-harness/blob/d743267388641bc76f17c45ce8b4c231aed1d32c/packages/core/session/src/surface.ts#L567-L576 -->
 ```ts
-    const dataSnapshot = snapshotJsonValue(data)
-    if (dataSnapshot === undefined) {
-      throw new Error(`session event "${type}" carries non-JSON-serializable data`)
-    }
-    const surfaceMetadataSnapshot = snapshotJsonValue(surfaceMetadata)
-    if (surfaceMetadataSnapshot === undefined) {
-      throw new Error(`session event "${type}" carries non-JSON-serializable surface metadata`)
-    }
-    const entry = this.publicationEntry()
-    const event = deepFreeze({
-      type,
-      seq: SessionSeq(this.log.length),
-      time: Date.now(),
-      data: dataSnapshot,
-      ...(surfaceMetadataSnapshot as { surfaceOp?: unknown; sourceEventSeqs?: unknown }),
-    } as unknown as SessionEvent<T>)
-    validateSessionEventData(event, `session event "${type}" at seq ${event.seq}`)
-    this.commit(event as SessionEvent, entry)
-    return event
+  // 笔记：nodes 保存模型阅读顺序；seq 只是原事件的位置，不是排序依据。
+  if (plan?.kind === 'append') {
+    state.nodes.push(plan.seq)
+  } else if (plan?.kind === 'replace') {
+    // 笔记：把原来的连续范围换成一个新节点，旧事件仍在 Session 日志中。
+    state.nodes.splice(plan.startIdx, plan.endIdx - plan.startIdx + 1, plan.seq)
+    state.replaceGeneration += 1
+    // 笔记：已有内容改变，通知消息缓存失效；普通尾部追加不用走这一步。
+    state.contentGeneration += 1
+  } else if (plan?.kind === 'project') {
+    for (const [seq, message] of plan.messages) state.projectedMessages.set(seq, message)
+    state.projections.add(plan.projection)
+    // 笔记：已有内容改变，通知消息缓存失效；普通尾部追加不用走这一步。
+    state.contentGeneration += 1
 ```
 
-#### 逐段讲解
+这里的 `contentGeneration` 可以理解为“旧内容改过几次”。普通追加只增加尾部节点；替换或修改已有内容时，版本号递增，提醒消息缓存重新计算。
 
-数据和 surface metadata 分别快照，不能序列化就拒绝，而不是等存储写入时才悄悄丢字段。外部调用者后来修改原 data 对象，不应改变已经接纳的事件。
+这个例子还有个容易踩的坑：`[3, 2]` 是正确顺序。摘要的日志编号较新，却放在被替换内容原来的位置。继续压缩时，要沿当前 Surface 找范围，不能拿事件编号的大小代替消息顺序。
 
-seq 取当前 log.length，再冻结 envelope 和 data，完成事件级校验后才 commit。TypeScript 的类型断言不是运行时校验替代品；这里明确调用 validateSessionEventData。
+为什么不直接修改 `messages`？直接改最简单，但旧内容和替换过程会消失。保留日志便于回看、恢复和追查摘要问题。为免调用者事后篡改原对象，`append` 会先复制、校验并冻结数据。代价则是旧数据仍占空间，读取时还需要一层重建逻辑。
 
-**分析：** 可重放系统必须先固定“究竟发生了什么”，不能把仍可变的对象指针当历史。此处还没有承诺磁盘持久性。
+<!-- decision: D02-D2 | 有了增量缓存，读取历史为什么仍有成本？ -->
+## 增量投影缓存与消息复制成本
 
-### 3. 核心源码 B：提交与观察者通知有边界
+如果只追加 D，已有 A、B、C 的消息对象可以复用，只转换新节点；如果发生上面的摘要替换，版本号变化就清空缓存重建。处理新增节点后，函数这样返回：
 
-源码：[`index.ts`，L856–L897](https://github.com/deepseek-ai/deepseek-harness/blob/d743267388641bc76f17c45ce8b4c231aed1d32c/packages/core/session/src/index.ts#L856-L897)。
-
-<!-- source: https://github.com/deepseek-ai/deepseek-harness/blob/d743267388641bc76f17c45ce8b4c231aed1d32c/packages/core/session/src/index.ts#L856-L897 -->
+<!-- annotated-source: https://github.com/deepseek-ai/deepseek-harness/blob/d743267388641bc76f17c45ce8b4c231aed1d32c/packages/core/session/src/index.ts#L993-L1004 -->
 ```ts
-  private commit(event: SessionEvent, entry: SessionEntry | undefined): void {
-    this.surfaceManager.validateNext(event)
-
-    if (entry !== undefined) entry.appending = true
-    try {
-      let callbacks: SessionCallback[] | undefined
-      const callbackArgs: unknown[] = [this, event]
-      if (entry !== undefined) {
-        callbacks = collectSessionCallbacks(entry.emitCtx, [entry.carrier, 'session/event', ...callbackArgs])
-      }
-      this.log.push(event)
-      this.eventsSnapshot = undefined
-      if (callbacks !== undefined && entry !== undefined) {
-        invokeContainedSessionObservers(entry.emitCtx, 'session/event', entry.id, callbackArgs, callbacks)
-      }
-    } finally {
-      if (entry !== undefined) {
-        entry.appending = false
-        if (entry.detachRequested && !entry.announcing) entry.detach()
-      }
-    }
-  }
-```
-
-先让 SurfaceManager 检查 next event，再进入 publication 的 appending 区间。入 log 后使 eventsSnapshot 缓存失效，然后通知观察者；finally 解除 appending，并处理延迟 detach。
-
-前面的 publicationEntry 会拒绝发布期间的重入 append。**设计分析：** 如果观察者在当前事件尚未完成发布时任意追加，可能破坏顺序与同一 publication 的假设；这里选择明确拒绝，而不是靠调用者自觉。
-
-观察者 containment 和 storage flush 仍是不同职责。不能因为 callback 已被通知，就认为导出、刷盘或远端交付都成功。
-
-### 4. 核心源码 C：Surface 变化决定缓存能否增量复用
-
-源码：[`index.ts`，L955–L1015](https://github.com/deepseek-ai/deepseek-harness/blob/d743267388641bc76f17c45ce8b4c231aed1d32c/packages/core/session/src/index.ts#L955-L1015)。
-
-<!-- source: https://github.com/deepseek-ai/deepseek-harness/blob/d743267388641bc76f17c45ce8b4c231aed1d32c/packages/core/session/src/index.ts#L955-L1015 -->
-```ts
-  deriveMessages(): Message[] {
-    const surface = this.surface
-    const nodes = surface.nodes
-    const generation = surface.contentGeneration
-    if (generation !== this.derivedGeneration) {
-      this.derived = []
-      this.derivedNodes = 0
-      this.derivedGeneration = generation
-    }
+    // 笔记：缓存仍有效时，只转换上次读取之后新增加的 Surface 节点。
     for (const seq of nodes.slice(this.derivedNodes)) {
       // Surface sequences are built from this.log — seq is always a valid
       // index by construction. The non-null assertion expresses that invariant.
@@ -156,23 +57,38 @@ seq 取当前 log.length，再冻结 envelope 和 data，完成事件级校验�
       // A surface node is one of the five message-producing types, but an
       // empty-content assistant/message (a max-tokens step that hosts only
       // usage) derives to null and must not enter the transcript.
+      // 笔记：只带用量的空回复不进入模型历史，跳过 null。
       if (msg) this.derived.push(msg)
     }
     this.derivedNodes = nodes.length
+    // 笔记：返回新数组以隔离调用方，但会复制全部引用，因此读取仍有 O(N) 成本。
     return [...this.derived]
-  }
 ```
 
-#### 逐段讲解
+`return [...this.derived]` 是关键：每次给调用者一张新列表，里面共享已经冻结的消息对象。你上次拿到的列表，不会因为 Agent 又说了一句话而突然变长；也不用每次深拷贝所有正文。
 
-generation 不变时只处理新增 Surface nodes；发生内容替换或投影变化导致 generation 改变时，丢弃派生缓存重建。若只看 log 是否增长，就无法正确处理“追加一条 replacement 事件改变旧位置”的情况。
+但新列表仍要复制所有消息引用。若当前有 N 条消息，返回列表就有 N 次引用复制。假设每新增一条都读取完整历史，总复制量是 1＋2＋…＋N。这说明缓存省下的是旧消息的转换工作，不能据此把整个读取过程说成“只花新增部分的时间”。模型请求还要序列化，是否值得优化，要实际测量。
 
-遍历顺序来自 surface.nodes，不是直接遍历全部 log，因此 log-only 事件不会自动进入模型 history。某些节点还可能派生 null，例如只携带 usage 的空 assistant 内容。
+如果只关心当前状态，简单消息数组配合快照更容易维护。确实需要压缩后追溯、分叉与重放时，日志和 Surface 的分工才更有价值。
 
-返回 `[...this.derived]` 复制外层数组；附近契约说明内部 Message 对象共享且冻结。因此调用者的数组不会随后被追加，也不能借共享 Message 改写历史。拷贝数组不等于每次深拷贝所有消息。
+<details>
+<summary>源码与核对范围</summary>
 
+已静态核对[Session 的定位](https://github.com/deepseek-ai/deepseek-harness/blob/d743267388641bc76f17c45ce8b4c231aed1d32c/docs/subsystems/session.md#L1-L5)、[追加与冻结](https://github.com/deepseek-ai/deepseek-harness/blob/d743267388641bc76f17c45ce8b4c231aed1d32c/packages/core/session/src/index.ts#L798-L826)、[请求消费方](https://github.com/deepseek-ai/deepseek-harness/blob/d743267388641bc76f17c45ce8b4c231aed1d32c/packages/core/agent-loop/src/agent.ts#L684-L703)。上游[缓存测试](https://github.com/deepseek-ai/deepseek-harness/blob/d743267388641bc76f17c45ce8b4c231aed1d32c/packages/core/session/tests/derived-cache.spec.ts#L66-L96)确实检查“替换后重建等于从头推导”和“旧数组不变”；[Surface 测试](https://github.com/deepseek-ai/deepseek-harness/blob/d743267388641bc76f17c45ce8b4c231aed1d32c/packages/core/session/tests/surface.spec.ts#L329-L356)覆盖替换后的非递增编号。本轮未运行上游测试。旧文误称本仓库独立机制实验已覆盖 replacement 失效，这里更正：该实验只对比投影与引用复制成本。Session 的内存追加也不等于磁盘写入完成。
 
+</details>
 
-## 7. 记录与验证边界
+**小自测：** 新摘要编号是 9，替换掉当前第一条消息后，Surface 能否以 `[9, 4, 7]` 开头？还能用编号递增来排序吗？
 
-源码一致性检查只核对代码与固定版本匹配；设计结构检查只核对章节、决策编号和生成完整性，不证明论证正确。自建机制测试只验证抽象反例；没有编译或运行上游 Agent、真实模型、性能评测或 OS 沙箱测试。完整上一版保存在 [Git 历史](https://github.com/solstice621/Agent-Learning-Notes/blob/69577b8d1dc34b052090b43206faa9fcd2c597b2/dsh/02-context-session.md)。源码归属与许可见 [第三方声明](../THIRD_PARTY_NOTICES.md)。
+<details>
+<summary>参考答案</summary>
+
+可以。Surface 保存的是模型阅读顺序，9 占据被替换消息的位置。按编号排序会把摘要移到后面，改变真实上下文。
+
+</details>
+
+---
+
+固定源码：`deepseek-ai/deepseek-harness@d743267388641bc76f17c45ce8b4c231aed1d32c`｜研究日期：2026-10-12。
+
+[源码重读记录](../research/reread/dsh-01-04.md) · [研究方法与验证边界](../RESEARCH_METHOD.md) · [源码归属与许可](../THIRD_PARTY_NOTICES.md)

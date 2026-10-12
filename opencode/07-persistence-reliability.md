@@ -1,131 +1,90 @@
-# OpenCode 07｜为什么执行开始要写 claim，主动停止又和服务关闭不同？
+# OpenCode 07｜任务恢复：执行标记与重启接管
 
-[总目录](../README.md) · [设计索引](../DESIGN_INDEX.md) · [研究方法与证据](../RESEARCH_METHOD.md)
+[总目录](../README.md) · [先读导览](../START_HERE.md) · [项目架构](00-architecture.md) · [问题索引](../DESIGN_INDEX.md)
 
-**设计研究版 v3｜研究日期：2026-10-12｜固定源码：`anomalyco/opencode@60a212c0769acd96b446acbadeb790486830f91d`。** 下面先论证需求、反例、候选方案与代价，再展开真实源码。作者明示理由、文档契约和研究推导分别标注；上游运行实验仍为待运行。
+代码中 `// 笔记：` 为新增中文注释，其余保留上游原文。
 
-## 1. 从重启后的数据库倒推设计
+Agent 正在修改代码，服务突然退出。重启后只看到聊天记录：它是真的做完了，还是刚开始就崩了？如果只在内存里保存“忙碌中”，这个线索已经消失；如果打算退出时再存，强制结束进程又可能不给它机会。
 
-内存中 `busy=true` 只能告诉当前进程有任务。进程被 kill、容器驱逐或宿主重启后，这个信息消失。仅保留用户 prompt 也无法判断它从未开始、正在工作、已成功还是明确取消。
+**OpenCode 在开始执行前先留下“这轮还没结束”的记录，正常收尾再清除。** 重启恢复依靠这条记录，而不是期待退出钩子一定运行。
 
-execution.ts 的注释说明 write-ahead claim 与 Started 事件在同一事务提交，终态释放；shutdown interruption 保留 claim。没有终态的残留 claim 使后续启动能识别未结束意图。[F1] 这是一条作者明确解释过的恢复思路，而不是仅凭变量名猜测。
+这里讲的是 Core 的执行与存储层：协调器启动一轮执行，事件总线提交开始事件对应的数据库投影，SessionStore 保存待完成标记，受管理的服务在启动时调用恢复器。
 
-## 2. 决策 O07-D1：为什么不能只在 shutdown hook 保存任务？
+<!-- decision: O07-D1 | 为什么必须先记下来，再开始做？ -->
+## 执行前的持久标记
 
-SIGKILL、崩溃和掉电不保证执行正常关闭钩子。先在开始时记录执行意图，结束时清除，能把“未结算”变成数据库中的可见状态；关闭钩子只补充正常路径，不再是恢复前提。[F1]
+源码把它叫 `claim`，可以先理解成“未结账标记”。它与开始事件对应的投影更新放在同一次数据库事务里：
 
-| 策略 | 好处 | 故障窗口 |
-|---|---|---|
-| 只有内存状态 | 快且简单 | 重启忘记所有 active work |
-| 退出时写待恢复列表 | 正常关闭够用 | 无清理退出完全丢失 |
-| Started 与 claim 分开写 | 能留下部分信息 | 可能只写一边，形成相互矛盾状态 |
-| Started＋claim 同事务 | 意图与事件相伴 | 还需恢复扫描、工具结算与执行归属 |
-
-“同事务”是本层注释与 commit 回调的契约；本轮没有证明数据库驱动所有隔离/崩溃设置。claim 也不是带 owner epoch 和 expiry 的集群租约。多个进程共享存储要讨论 fencing、并发恢复和租约丢失后的旧 Worker，不能直接复用本地 map 假装完成。
-
-## 3. 决策 O07-D2：为什么 user interrupt 应释放，shutdown 却保留？
-
-用户按停止通常表达“不要继续这份意图”；服务重启通常只表达“当前执行载体不可用”。若不区分原因，恢复会自动继续被用户取消的任务，或让维护重启意外丢掉所有待完成工作。
-
-源码在 deliberate stop 路径取消相关 job、释放 claim；shutdown interruption 留下 claim。[F1] 这种语义必须与产品约定一致：某些批处理系统把用户断连也视为继续，某些交互任务则把会话关闭视为取消。因此不要把网络掉线、用户停止和进程关闭直接对应为一个 canceled 状态。
-
-**竞争点：** 中断接受后 cleanup 仍在执行，新输入可能到达。Coordinator 的 awaitSettlement 只等原 execution，awaitIdle 还会跟随后继执行。[F2] 对旧任务解除 claim 与后继新任务开始，需要可区分的忙期和终态，不应只让一个 Session-level bool 代表所有历史。
-
-## 4. write-ahead 意图为什么仍不能提供副作用 exactly-once？
-
-Started/claim 表示系统应处理工作，不证明每个工具的外部效果已提交。工具在修改外部世界后、结果落盘前崩溃，恢复者面对结果未知。统一重跑会重复效果；统一跳过会遗漏尚未做的动作。
-
-本仓库机制实验以两个世界展示相同日志可能对应不同副作用；它不是 OpenCode 的故障复现。要增强保证，需要工具幂等、外部状态查询、事务型资源或人工核对，不能仅增加 retry 次数。
-
-Durable inbox 的请求 ID 也只解决相应接纳层的重复；它不是任意 Shell 命令的幂等键。相同文本不同 ID、相同 ID 不同 Session/type，以及已有调用结果未知，都应分开设计。[D1]
-
-## 5. 验证、选型与学习重点
-
-**上游实验待运行：** 接纳后 wake 前退出；Started/claim 事务前后退出；user interrupt、shutdown、无清理 SIGKILL 对比；工具效果后结果前退出。记录每类恢复究竟重建了输入、执行意图、模型历史还是外部状态。
-
-**反证条件：** 若业务只运行可随时重做的纯计算，复杂逐步恢复可能比从头重跑更贵；若有重要外部副作用，只有 claim 没有工具级协议则仍不足。
-
-应带走的原则：把恢复所需事实前置到失败前记录；区别业务停止意图与执行载体故障；对未知结果保持诚实。恢复能力不是“resume 按钮存在”，而是每个故障窗口都有明确可证明的状态。
-
-[F1]: https://github.com/anomalyco/opencode/blob/60a212c0769acd96b446acbadeb790486830f91d/packages/core/src/session/execution.ts#L70-L180
-[F2]: https://github.com/anomalyco/opencode/blob/60a212c0769acd96b446acbadeb790486830f91d/packages/core/src/session/run-coordinator.ts#L1-L245
-[D1]: https://github.com/anomalyco/opencode/blob/60a212c0769acd96b446acbadeb790486830f91d/specs/v2/session.md
-
-## 6. 核心源码与逐段核对
-
-以下保留上一版的全部核心源码块及所在导读段；源码、缩进与定位范围不改写。前文设计研究补足其适用前提和反例，特别不能将收益概括误当作运行保证。
-
-### 2. 核心源码 A：claim 与事件提交绑定
-
-源码：[`session/execution.ts`，L66–L182](https://github.com/anomalyco/opencode/blob/60a212c0769acd96b446acbadeb790486830f91d/packages/core/src/session/execution.ts#L66-L182)。
-
-<!-- source: https://github.com/anomalyco/opencode/blob/60a212c0769acd96b446acbadeb790486830f91d/packages/core/src/session/execution.ts#L66-L182 -->
+<!-- annotated-source: https://github.com/anomalyco/opencode/blob/60a212c0769acd96b446acbadeb790486830f91d/packages/core/src/session/execution.ts#L76-L86 -->
 ```ts
+    // Write-ahead claim: starting records the durable intent that a turn is in flight, in the same
+    // transaction as the started event. Terminals release it — except shutdown interruption, which
+    // preserves the claim so the next server start resumes the turn. A claim that survives with no
+    // terminal is the signature of a process that died without teardown (crash, SIGKILL, eviction);
+    // recovery is a property of the database, never of a shutdown hook that may not run.
+    // 笔记：回调交给事件总线，让开始事件的投影更新与未完成标记在同一次事务中提交。
     const claimOnCommit = (sessionID: SessionSchema.ID) => ({
       commit: () => store.claim(sessionID),
     })
+    // 笔记：正常终态用这个回调清除标记；服务关闭的中断分支会特意省略它。
     const releaseOnCommit = (sessionID: SessionSchema.ID) => ({
       commit: () => store.release(sessionID),
     })
 ```
 
-调用者不是在任意时刻单独改内存 busy 标记，而是构造提交回调，与 Bus 发布生命周期事件连接。上方源码注释把这一契约称作 write-ahead claim；要验证数据库原子性，还需继续读 Bus 与 Store，不能只因字段叫 commit 就宣称完整事务已经审计。
+沿调用链往下看，`started` 把 `claimOnCommit` 交给 `bus.publish`；Bus 在事务内更新投影并执行这个回调。协调器等开始步骤完成后，才进入真正的执行循环。这样不会出现已经干活、数据库却从未记录开始的正常路径。
 
-**分析：** 可恢复事实应在开始工作时留下，而不是只依靠工作结束时写清理记录。异常退出、SIGKILL 或节点驱逐可能根本不给 shutdown hook 机会。
+这里持久保存的是业务状态与 claim；完整事件载荷是否另存到事件表，由 `events.persist` 配置决定，默认未开启。不能因为事件叫 durable，就推断每个部署都保留全量事件日志。见 [Bus 默认值](https://github.com/anomalyco/opencode/blob/60a212c0769acd96b446acbadeb790486830f91d/packages/core/src/bus.ts#L198-L204)与[事务中的条件写入](https://github.com/anomalyco/opencode/blob/60a212c0769acd96b446acbadeb790486830f91d/packages/core/src/bus.ts#L395-L430)。
 
-### 3. 核心源码 B：一个 busy period 对应一次终态结算
+更具体地说，`claim` 写的是会话表的 `time_suspended` 字段。名字虽然像“暂停时间”，实际在执行开始时就写入。任务成功或失败时，终态投影与清除标记一起提交。若进程直接消失，未清除的标记就留给下一次启动。
 
-同一源码范围。
+恢复器不会先删标记再试跑，否则恢复过程中再次崩溃就会丢线索。它先持久增加尝试次数，再继续工作；默认一轮最多自动恢复 10 次，避免反复崩溃后永远自启。见[恢复准备](https://github.com/anomalyco/opencode/blob/60a212c0769acd96b446acbadeb790486830f91d/packages/core/src/session/execution/restart.ts#L77-L98)。
 
-<!-- source: https://github.com/anomalyco/opencode/blob/60a212c0769acd96b446acbadeb790486830f91d/packages/core/src/session/execution.ts#L66-L182 -->
+<!-- decision: O07-D2 | 用户按停止，和服务被关闭，为什么不能一样处理？ -->
+## 用户取消与服务关闭的恢复语义
+
+用户按停止，是撤回继续执行的意图。服务维护重启，则通常还希望任务继续。代码在中断收尾时按原因分支：
+
+<!-- annotated-source: https://github.com/anomalyco/opencode/blob/60a212c0769acd96b446acbadeb790486830f91d/packages/core/src/session/execution.ts#L128-L136 -->
 ```ts
-    const coordinator = yield* SessionRunCoordinator.make<SessionSchema.ID, SessionRunner.RunError, InterruptReason>({
-      started: (sessionID) =>
-        reportLifecycle(
-          sessionID,
-          bus.publish(SessionEvent.Execution.Started, { sessionID }, claimOnCommit(sessionID)),
-        ),
-      drain: (sessionID, force, promotable) => drain(sessionID, force, undefined, promotable),
-      // One terminal observation per busy period, covering every coalesced drain.
-      settled: (sessionID, exit, reason) =>
-```
-
-这是 coordinator 配置的开始部分，未伪装成完整对象。started 发布事件并提交 claim；多个 coalesced drain 被同一个 busy period 包围，最终 settled 才处理一次生命周期结束。
-
-因此“wake 调了三次”“drain 执行三次”“创建了三个 durable claim”不是等价关系。必须读协调器怎样合并唤醒，而不能只统计 API 调用。
-
-### 4. 核心源码 C：用户停止释放，shutdown 保留
-
-同一源码范围。
-
-<!-- source: https://github.com/anomalyco/opencode/blob/60a212c0769acd96b446acbadeb790486830f91d/packages/core/src/session/execution.ts#L66-L182 -->
-```ts
-            if (outcome.type === "succeeded") {
-              yield* bus.publish(SessionEvent.Execution.Succeeded, { sessionID }, releaseOnCommit(sessionID))
-              return
-            }
             if (outcome.type === "interrupted") {
               // Deliberate stops release the claim; shutdown keeps it for restart continuity.
+              // 笔记：用户主动停止要撤回继续执行的意图；服务关闭则为下次启动保留任务。
               if (outcome.reason !== "shutdown") yield* jobs.cancel(sessionID)
               yield* bus.publish(
                 SessionEvent.Execution.Interrupted,
                 { sessionID, reason: outcome.reason },
+                // 笔记：是否恢复取决于持久标记是否保留；同为 Interrupted 事件，提交动作却不同。
                 outcome.reason === "shutdown" ? undefined : releaseOnCommit(sessionID),
               )
               return
-            }
 ```
 
-#### 逐段讲解
+`shutdown` 保留标记；用户停止和闲置中断会取消相关 Job，并随中断事件清除标记。否则用户刚叫停的任务，下一次重启又可能自己跑起来。
 
-成功释放 claim。中断则先看原因：显式停止取消相关 jobs，并在 Interrupted 事件中释放；shutdown 不传 release 回调，保留后续恢复线索。
+停止请求被接受，也不等于资源清理已经结束。执行器会异步收尾；需要确认已经停稳时，还要等待结算或空闲。清理期间新提交的工作是新意图，协调器会另外启动后续执行。
 
-保留的是“曾有未完成执行”的持久意图，不是“旧进程仍然活着”的证明。当前本地 active 集合、历史 Started 事件和 durable claim 应分别使用。
+## 恢复范围与外部效果的不确定性
 
-**最重要的限制：** claim 不记录每个外部副作用的原子提交。工具可能已写文件或完成外部操作，但结果没来得及持久化。恢复系统不能从未知结果推导“从未执行”，也不能随意重演。
+它恢复的是“这轮还有工作要继续”，不是把进程内存和每个外部动作倒回原处。假设工具已提交一次外部修改，却在结果落盘前崩溃，重跑可能重复修改。因此恢复器明确采用至少一次语义，工具仍需幂等、查询外部状态或单独核对。
 
+恢复入口也有范围：受管理的服务器启动时才自动安装扫描；顶层会话按 claim 恢复，后台子会话另走 Job 的恢复记录。不能把它直接当作多个并行服务器争抢任务的租约系统。
 
+可随时重做的纯计算，从头再跑通常更简单。只有确实要跨重启继续工作，才值得承担持久标记、恢复预算和副作用核对的成本。
 
-## 7. 记录与验证边界
+**小自测：** 一轮任务被用户停止，另一轮因服务关闭而中断，重启时哪轮应该继续？继续前能否先删 claim？
 
-源码一致性检查只核对代码与固定版本匹配；设计结构检查只核对章节、决策编号和生成完整性，不证明论证正确。自建机制测试只验证抽象反例；没有编译或运行上游 Agent、真实模型、性能评测或 OS 沙箱测试。完整上一版保存在 [Git 历史](https://github.com/solstice621/Agent-Learning-Notes/blob/69577b8d1dc34b052090b43206faa9fcd2c597b2/opencode/07-persistence-reliability.md)。源码归属与许可见 [第三方声明](../THIRD_PARTY_NOTICES.md)。
+<details>
+<summary>展开答案</summary>
+
+后者保留继续意图，前者应停下。不能先删标记；否则恢复途中再次退出，就失去了下一次恢复的依据。
+
+</details>
+
+> 证据边界：已追到 Bus 事务、启动扫描及数据库断言测试，未运行真实进程崩溃实验；外部副作用不会因 claim 自动获得仅执行一次的保证。
+
+---
+
+固定源码：`anomalyco/opencode@60a212c0769acd96b446acbadeb790486830f91d`｜研究日期：2026-10-12。
+
+[源码重读记录](../research/reread/opencode-05-08.md) · [研究方法与验证边界](../RESEARCH_METHOD.md) · [源码归属与许可](../THIRD_PARTY_NOTICES.md)
