@@ -1,0 +1,11 @@
+{
+  "status": "PASS",
+  "tests_run": 22,
+  "failures": 0,
+  "errors": 0,
+  "skipped": 0,
+  "scope": "Independently authored deterministic mechanism models; NOT upstream Agent tests or performance measurements",
+  "upstream_agent_tests_run": false,
+  "real_model_calls_run": false,
+  "os_sandbox_tests_run": false
+}

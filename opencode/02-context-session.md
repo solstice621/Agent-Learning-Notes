@@ -1,14 +1,65 @@
-# OpenCode 02｜Context：先建立执行前提，再提升输入
+# OpenCode 02｜为什么准备上下文必须早于消费输入，压缩又必须影响续接？
 
-[总目录](../README.md) · P0 · 对照：[Codex](../codex/02-context-session.md) / [DSH](../dsh/02-context-session.md)
+[总目录](../README.md) · [设计索引](../DESIGN_INDEX.md) · [研究方法与证据](../RESEARCH_METHOD.md)
 
-**固定源码：** `anomalyco/opencode@60a212c0769acd96b446acbadeb790486830f91d`。本篇采用 Runner 的实际调用点；文档描述的指令 blob/epoch 等语义单独作为扩展阅读，不伪装成已经审计全部 projector。未运行实验。
+**设计研究版 v3｜研究日期：2026-10-12｜固定源码：`anomalyco/opencode@60a212c0769acd96b446acbadeb790486830f91d`。** 下面先论证需求、反例、候选方案与代价，再展开真实源码。作者明示理由、文档契约和研究推导分别标注；上游运行实验仍为待运行。
 
-## 1. 本篇研究问题
+## 1. 问题不只是 messages 太长
 
-如何避免已经接受了用户任务，却在执行前提不满足时把它从 pending 输入中消耗掉？如何把当前 agent、model、tools、instructions 和 history 组合成真正发送的请求？
+模型请求由用户输入、指令基线、当前工具、历史消息和 provider 状态共同形成。数据库里有一条 prompt，并不表示形成这个请求的所有前提都已准备好；服务器缓存了一条 response ID，也不表示当前历史仍能续接它。
 
-## 2. 核心源码 A：初始指令失败时保留 pending 输入
+Runner 调用 prepareContext，再 promote inbox，然后 load；prepareContext 先 select，再 InstructionState.prepare。源码注释明确：初始指令基线阻塞时，已接纳输入应留在 pending。[F1] 本篇从这条具体约束推导顺序，而不是将 prepare/load 看作任意代码拆分。
+
+## 2. 决策 O02-D1：为什么“取出消息再准备指令”不是等价重排？
+
+**反事实时间线：** t0 用户输入已 durable；t1 从 inbox 删除/提升；t2 读取所需指令失败；t3 服务重启。若没有记录已经进入哪个逻辑步骤，恢复者可能不知道它是未执行、已部分执行还是应该重入队。
+
+把可能失败的指令准备放在消费前，不能消除所有失败，但减少一类半接纳状态。源码在 promote 与 context.load 之间仍处理控制项争抢边界，因此不是“先检查一次配置就从此不会变化”。[F1]
+
+| 方案 | 得到什么 | 代价 |
+|---|---|---|
+| 输入先消费，错误时再入队 | 正常路径看似直接 | 需要补偿、去重和已完成阶段记录 |
+| 指令失败时用空默认值继续 | 可用性高 | 实际违反任务指令；难复现模型行为 |
+| 准备前提后再提升输入 | 失败时保留明确 pending 状态 | 输入可能等待，必须暴露阻塞原因 |
+| 接纳时冻结所有环境内容 | 精确记录提交时环境 | 准备成本进入入口；环境可能很快过时 |
+
+**设计判断：** 是否允许缺失指令降级是业务语义，不应该由通用异常处理器决定。尤其安全或项目约束来源不可读时，用空字符串继续未必是“更可靠”。本文不假定所有 instruction source 都是安全规则。
+
+## 3. 决策 O02-D2：为什么压缩不只是数据库删除旧消息？
+
+当前 Runner 将 auto compaction 放在逻辑 Step 策略里，成功后重新准备请求；Attempt 仅在合适的 overflow 边界请求恢复，尤其关注 durable output 是否开始。[F1][F2] Session 文档区分完整持久历史与当前活动上下文、指令和 provider 续接语义。[D1]
+
+**推导：** 上下文压缩改变的是“下一请求依赖什么”，而不是宣布旧事实从未发生。若只删数据库旧消息，却继续带旧 provider continuation，客户端认为已经缩小历史，服务端可能仍接着旧内容。若将所有历史重新发出，又抵消压缩并可能改变缓存前缀。
+
+必须分别决定 transcript view、provider-native state 和 instruction baseline 何时失效。状态持久不代表适用于当前模型；一个 provider 私有 replay blob 也不应被随意搬给另一个 provider。
+
+一个值得注意的优化是最终允许 Step 保留工具定义但设置 toolChoice=none，代码注释说明为了保留缓存前缀；工具执行侧也需要拒绝越过最大步骤的调用。[F1][F2] **分析：** 缓存友好表示与实际执行权可以分开；“声明仍在”不等于“仍允许调用”。
+
+## 4. 保真度、缓存与安全不是同一个优化目标
+
+少发 token 不一定让任务更便宜：摘要请求、缓存失效和丢约束后的返工都要计入。保留全部历史也不保证更正确，陈旧指令和不再成立的环境事实可能误导模型。
+
+建议比较固定窗口、结果裁剪、摘要＋近期历史与当前分层方案；每一种都用同一任务评估约束保留、工具配对、总请求量与最终正确性。本文没有实测这些方案谁更优。
+
+**反例：** 一个只做单轮分类的服务没必要引入复杂持久 Session、指令 delta 与 compaction epoch。抽象的收益依赖长交互、恢复与动态环境需求；不应从大型 Agent 反向制造不存在的需求。
+
+## 5. 验证方案与学习结果
+
+**上游实验待运行：** 初始指令准备故障后检查输入仍 pending；压缩前后分别捕获 durable history、active context、实际请求；改变 provider/工具/指令时检查续接失效与缓存行为。故障点要明确落在 outputStarted 前还是后，否则重试结论不可比。
+
+针对 final Step，令 mock 模型仍发 tool-call，检查执行层拒绝而不是只靠 Prompt 自律。对输入重新接纳、指令快照和输出提交都保留独立 ID。
+
+应能回答：哪些事实需要在接纳前准备，哪些只在请求时绑定，哪些历史变化要求续接失效？这比知道 context.load 的参数列表更接近可复用的 Context Engineering。
+
+[F1]: https://github.com/anomalyco/opencode/blob/60a212c0769acd96b446acbadeb790486830f91d/packages/core/src/session/runner/llm.ts#L140-L280
+[F2]: https://github.com/anomalyco/opencode/blob/60a212c0769acd96b446acbadeb790486830f91d/packages/core/src/session/runner/step.ts#L1-L290
+[D1]: https://github.com/anomalyco/opencode/blob/60a212c0769acd96b446acbadeb790486830f91d/specs/v2/session.md
+
+## 6. 核心源码与逐段核对
+
+以下保留上一版的全部核心源码块及所在导读段；源码、缩进与定位范围不改写。前文设计研究补足其适用前提和反例，特别不能将收益概括误当作运行保证。
+
+### 2. 核心源码 A：初始指令失败时保留 pending 输入
 
 源码：[`session/runner/llm.ts`，L165–L282](https://github.com/anomalyco/opencode/blob/60a212c0769acd96b446acbadeb790486830f91d/packages/core/src/session/runner/llm.ts#L165-L282)。
 
@@ -22,13 +73,13 @@
     })
 ```
 
-### 逐段讲解
+#### 逐段讲解
 
 select 先决定当前 Session 所需的上下文来源，InstructionState.prepare 再建立初始指令基线。`yield*` 失败会停止这条 Effect 路径，因此不能把它放在不等待的后台 Promise 中后继续执行。
 
 注释表达的是明确的 admission 约束：输入已被系统接纳，但在初始指令阻塞时应仍 pending。**接纳成功与模型可见是不同承诺。** 这段还没有展示数据库如何存指令，只能证明准备步骤发生在调用者可以继续之前。
 
-## 3. 核心源码 B：准备完成之后才 promote
+### 3. 核心源码 B：准备完成之后才 promote
 
 同一源码范围。
 
@@ -51,7 +102,7 @@ select 先决定当前 Session 所需的上下文来源，InstructionState.prepa
                   return { _tag: "Ready" as const, context: yield* context.load(selected) }
 ```
 
-### 逐段讲解
+#### 逐段讲解
 
 prepare 可能等待 I/O，期间还可能到达新的控制项。因此 promote 返回 undefined 的情况不是“没有用户文本”这么简单：注释说明控制项可能获得这个边界，当前路径需要退出再评估。
 
@@ -61,7 +112,7 @@ prepare 可能等待 I/O，期间还可能到达新的控制项。因此 promote
 
 最后 `context.load(selected)` 发生在 promote 之后，因而读取的是这次边界已提升后的模型上下文，而不是在等待期间抓到的一份永远不变的旧 messages。
 
-## 4. 核心源码 C：请求由明确的当前视图构建
+### 4. 核心源码 C：请求由明确的当前视图构建
 
 同一源码范围。
 
@@ -80,20 +131,8 @@ prepare 可能等待 I/O，期间还可能到达新的控制项。因此 promote
 
 **设计分析：** 将来源与转换边界显式表达，才能解释为什么模型在重试或压缩后看到不同内容。持久化历史完整不意味着每次请求都发送完整历史，也不保证压缩摘要保真。
 
-## 5. 与压缩和 provider 状态的联系
 
-同文件 `runStep` 在构建 baseTranscript 前运行 compaction，成功后重新开始准备；重试会刷新上下文但不再 promote 输入，见 [01](01-agent-loop.md)。
 
-[Session 契约](https://github.com/anomalyco/opencode/blob/60a212c0769acd96b446acbadeb790486830f91d/specs/v2/session.md) 描述 durable transcript 与活动摘要、指令 epoch、provider continuation 的区别。这里把这些标为文档契约，不从几个调用点宣称整个数据库与序列化实现已验证。
+## 7. 记录与验证边界
 
-## 6. 失败实验
-
-让初始指令来源失败：确认任务仍 pending；恢复后只提升一次。让一个控制项在 prepare 等待时到达：记录 promote 返回与下一边界，验证不能越过控制项。
-
-另保存压缩前 durable log、压缩后 active history 和实际 provider request 三份对照，分别标出指令、摘要和工具结果。不要拿 UI 消息集合证明模型见过同样内容。
-
-## 7. 验收
-
-能解释 prepare/promote/load 为什么是这个顺序、undefined 与 promoted=0 为什么不能随便合并、模型请求为什么不是完整数据库的直接 dump。
-
-所有实验仍为待运行；原文许可见 [第三方声明](../THIRD_PARTY_NOTICES.md)。
+源码一致性检查只核对代码与固定版本匹配；设计结构检查只核对章节、决策编号和生成完整性，不证明论证正确。自建机制测试只验证抽象反例；没有编译或运行上游 Agent、真实模型、性能评测或 OS 沙箱测试。完整上一版保存在 [Git 历史](https://github.com/solstice621/Agent-Learning-Notes/blob/69577b8d1dc34b052090b43206faa9fcd2c597b2/opencode/02-context-session.md)。源码归属与许可见 [第三方声明](../THIRD_PARTY_NOTICES.md)。

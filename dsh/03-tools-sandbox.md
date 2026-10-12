@@ -1,14 +1,63 @@
-# DSH 03｜Tools：滚动池、顺序提交与取消排空
+# DSH 03｜为什么并发执行却顺序提交？并发有界为何不等于内存有界？
 
-[总目录](../README.md) · P0 · 对照：[Codex](../codex/03-tools-sandbox.md) / [OpenCode](../opencode/03-tools-sandbox.md)
+[总目录](../README.md) · [设计索引](../DESIGN_INDEX.md) · [研究方法与证据](../RESEARCH_METHOD.md)
 
-**固定源码：** `deepseek-ai/deepseek-harness@d743267388641bc76f17c45ce8b4c231aed1d32c`。展示实际 tool-calls 调度器，不把并发调度当作安全隔离。实验尚未运行。
+**设计研究版 v3｜研究日期：2026-10-12｜固定源码：`deepseek-ai/deepseek-harness@d743267388641bc76f17c45ce8b4c231aed1d32c`。** 下面先论证需求、反例、候选方案与代价，再展开真实源码。作者明示理由、文档契约和研究推导分别标注；上游运行实验仍为待运行。
 
-## 1. 本篇的三个时间轴
+## 1. 先分清启动、完成与提交
 
-模型给出调用顺序；工具 body 有实际开始/完成顺序；结果及 additionalContexts 有提交顺序。三个顺序不必相同。调度器必须在并发收益、可解释历史和错误收敛之间取舍。
+模型给出 A、B、C 三个调用。body 可能按 B、C、A 完成；系统还要决定后置处理、日志结果和额外上下文以什么顺序对其他组件可见。DSH 的 runGroup 用 inFlight 跟踪未完成 dispatch，用 slots 保存结果，用 committed 沿模型顺序推进。[F1]
 
-## 2. 核心源码 A：未启动调用可以重新分类
+先纠正一个不充分理由：**“为了可以重放，所以必须模型顺序提交”不成立。** 完成顺序也可以被日志记录并重放。真正要分析的是当前顺序控制了哪些后续行为。
+
+## 2. 决策 D03-D1：为什么把并行范围限定在执行体，把后置行为顺序化？
+
+commitReady 除了 append result，还调用 finalize/finish 并接纳 additionalContexts；提交后待启动调用的 executionMode 可以重新判断。[F1] 因此顺序影响的不只是最终结果数组。
+
+**推导场景：** A/B 都返回额外上下文，或后置 hook 更新工具注册。若完成先后直接决定这些行为顺序，单纯工具耗时差异就可能改变后续上下文与调度。按模型顺序提交减少这部分时序差异，但不使工具本身确定、不回滚外部副作用，也不保证整个任务可重复。
+
+| 候选方案 | 强项 | 代价 |
+|---|---|---|
+| 全串行 | 顺序最直接、冲突容易推理 | 独立操作不能 overlap |
+| 无界并发＋统一收集再按序处理 | 代码简洁，返回数组也能保持输入顺序 | 无在途上限、整个批次等待、动态屏障困难 |
+| 有界并发＋完成即提交 | 完成结果及时可见 | 后置效果/上下文受完成顺序影响 |
+| 有界滚动池＋模型顺序提交 | 兼顾 overlap 与规定的语义顺序 | 队头阻塞、结果缓冲、调度复杂度 |
+
+`Promise.all` 不能被当作“结果必然乱序”的反面教材：它可以按输入顺序返回结果。真正比较的是并发上限、增量提交、屏障与取消，而不是 API 名字。
+
+## 3. 决策 D03-D2：为什么 maxParallelToolCalls 不是完整的资源预算？
+
+源码限制的是 `inFlight.size < maxParallelToolCalls`。后面短任务完成后会从 inFlight 移除并补新任务，而它们的结果可能仍在 slots 等前面慢任务提交；slots 按整个 group 分配，已提交结果也没有在这段代码立即清空。[F1]
+
+**可构造反例：** 并发上限 2；A 耗时 100，后面六个调用各耗时 1。A 一直占一个位置，另一个位置可连续完成六项。即使在途数从未超过 2，A 完成前仍可有六项已完成结果待提交。这里的 100/1 是抽象逻辑时间，不是产品测量。
+
+因此需要分别讨论在途数量、待提交结果数、保留结果字节与完整调用组大小。不能由 inFlight 有界推出整个调度器内存有界；也不能只看本段就声称进程输出毫无限制，因为单工具和其他层可能另有上限。
+
+可考虑同时限制“已启动但未提交”的窗口、为结果设字节预算、将大结果落到受控存储、或允许某些无后置效果调用完成即提交。每个方案都会改变 throughput/latency/语义：按未提交窗口限流会在 A 很慢时停止补任务，降低 overlap；落盘增加 I/O 与清理协议；乱序提交必须证明相关效果可交换。
+
+## 4. 动态分类与取消为什么增加复杂度？
+
+exclusive barrier 与结果 hook 可以改变后续工具分类；调度器在未开始前重读模式，取消后停止补充、等待 started dispatch，并为未启动调用记录合成错误。[F1][T1] 这比一次分组后 Promise.all 复杂，是因为“尚未开始”的政策仍可变化。
+
+但能力标记仍需可信：isConcurrencySafe 并非自动证明没有共享状态；顺序提交也不能修复已经并发发生的冲突写入。沙箱文件效应模式、并发冲突域和网络隔离要分别描述。[D1]
+
+## 5. 验证与选择条件
+
+本仓库离散事件机制实验验证：完成顺序与提交顺序可以不同；宽度 2 的上述例子会积累 6 个待提交结果；给“未提交窗口”也设限可降低 backlog，但不能让 body 结果更早完成。只证明抽象性质，不替代 DSH 测试或内存压测。
+
+**上游实验待运行：** gated tool 让首项阻塞、后续返回可控大结果；分别记录在途数、completed-not-committed、retained bytes 和 RSS；让后置 observer 改分类，核对 barrier；取消期间检查真实结果、未启动和结果未知的区别。
+
+**读后应能选择：** 对独立纯读结果，完成即处理可能更好；需要模型顺序的语义效果时，顺序提交值得成本；对大输出，单一并发计数不是充分的资源约束。
+
+[F1]: https://github.com/deepseek-ai/deepseek-harness/blob/d743267388641bc76f17c45ce8b4c231aed1d32c/packages/core/agent-loop/src/tool-calls.ts#L115-L260
+[T1]: https://github.com/deepseek-ai/deepseek-harness/blob/d743267388641bc76f17c45ce8b4c231aed1d32c/packages/core/agent-loop/tests/tool-calls.spec.ts
+[D1]: https://github.com/deepseek-ai/deepseek-harness/blob/d743267388641bc76f17c45ce8b4c231aed1d32c/docs/subsystems/sandbox.md
+
+## 6. 核心源码与逐段核对
+
+以下保留上一版的全部核心源码块及所在导读段；源码、缩进与定位范围不改写。前文设计研究补足其适用前提和反例，特别不能将收益概括误当作运行保证。
+
+### 2. 核心源码 A：未启动调用可以重新分类
 
 源码：[`agent-loop/src/tool-calls.ts`，L140–L250](https://github.com/deepseek-ai/deepseek-harness/blob/d743267388641bc76f17c45ce8b4c231aed1d32c/packages/core/agent-loop/src/tool-calls.ts#L140-L250)。
 
@@ -32,7 +81,7 @@
   }
 ```
 
-### 逐段讲解
+#### 逐段讲解
 
 三项 while 条件约束取消状态、待启动数量和在途数量。这里限制的是 inFlight，不是会话历史长度或总内存。
 
@@ -40,7 +89,7 @@
 
 startCall 与 commitReady 都可能 await，所以后面重新检查 scheduler failure 和 AbortSignal；单在循环入口检查不够。**分析：** 异步边界之后重新验证前提，是可变注册表和取消竞争中的关键模式。
 
-## 3. 核心源码 B：并发完成，但按模型顺序提交
+### 3. 核心源码 B：并发完成，但按模型顺序提交
 
 同一源码范围。
 
@@ -63,7 +112,7 @@ startCall 与 commitReady 都可能 await，所以后面重新检查 scheduler f
   }
 ```
 
-### 逐段讲解
+#### 逐段讲解
 
 只检查 slots[committed]：即使后面 slot 已经完成，前面 undefined 就停。因此 dispatch 可乱序完成，commit 却只跨过连续前缀。
 
@@ -73,7 +122,7 @@ startCall 与 commitReady 都可能 await，所以后面重新检查 scheduler f
 
 **取舍分析：** 顺序提交利于解释与重放，但会产生 head-of-line waiting：第一个慢工具阻塞后面已完成结果。应测量 commit wait，不把它全部算成后面工具 body 的耗时。
 
-## 4. 核心源码 C：调度失败先排空，不让已启动任务失管
+### 4. 核心源码 C：调度失败先排空，不让已启动任务失管
 
 同一源码范围。
 
@@ -97,14 +146,8 @@ scheduler failure 保留第一个失败，等待已经启动的 dispatch settled
 
 allSettled 不自动中断工具，也不能保证任意不合作的工具及时结束；这是需要测试 provider/工具取消契约的地方。已经发生但结果未知的副作用也不能写成未启动。
 
-## 5. Sandbox 的承诺边界
 
-[Sandbox 契约](https://github.com/deepseek-ai/deepseek-harness/blob/d743267388641bc76f17c45ce8b4c231aed1d32c/docs/subsystems/sandbox.md) 定义 per-call 文件副作用政策，并返回 full/partial；网络和进程可见性不在 SandboxMode 的这套词汇中。受限 provider 不可用时必须 fail closed。
 
-这些是执行隔离的独立契约。本篇的调度代码不证明文件或网络访问安全；工具 hook、guard 与 OS enforcement 应分开审查。
+## 7. 记录与验证边界
 
-## 6. 实验与验收
-
-用 [上游 gated-tool 测试](https://github.com/deepseek-ai/deepseek-harness/blob/d743267388641bc76f17c45ce8b4c231aed1d32c/packages/core/agent-loop/tests/tool-calls.spec.ts) 让 c2/c3 先完成、c1 最后完成，记录完成与 commit 的差异；在中间替换未启动工具的并发模式；在两项运行、一项未启动时取消。
-
-验收是五工具时间线：parallel、parallel、exclusive、parallel、parallel，分别标出 body、barrier、commit、additionalContext 和 abort。原文许可见 [第三方声明](../THIRD_PARTY_NOTICES.md)。
+源码一致性检查只核对代码与固定版本匹配；设计结构检查只核对章节、决策编号和生成完整性，不证明论证正确。自建机制测试只验证抽象反例；没有编译或运行上游 Agent、真实模型、性能评测或 OS 沙箱测试。完整上一版保存在 [Git 历史](https://github.com/solstice621/Agent-Learning-Notes/blob/69577b8d1dc34b052090b43206faa9fcd2c597b2/dsh/03-tools-sandbox.md)。源码归属与许可见 [第三方声明](../THIRD_PARTY_NOTICES.md)。

@@ -1,0 +1,10 @@
+{
+  "status": "PASS",
+  "base_commit": "69577b8d1dc34b052090b43206faa9fcd2c597b2",
+  "main_notes": 24,
+  "indexed_design_decisions": 48,
+  "preserved_source_excerpts": 70,
+  "changed_files": [],
+  "upstream_runtime_tests_run": false,
+  "scope": "Generated-text equality, decision structure, and verbatim excerpt preservation; not argument correctness"
+}
