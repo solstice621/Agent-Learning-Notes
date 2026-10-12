@@ -1,65 +1,66 @@
-# Agent Learning Notes｜源码节选与逐段讲解
+# Agent Learning Notes｜设计研究版 v3
 
-**Codex CLI × OpenCode × DeepSeek Harness（DSH）｜24 篇专题｜源码导读版**
+**Codex CLI × OpenCode × DeepSeek Harness｜24 篇主笔记｜48 项设计决策｜70 段原文源码**
 
-这套中文笔记面向 Agent Harness / Runtime / Infrastructure 学习。每篇直接展示官方仓库的核心源码，解释输入输出、状态归属、调用顺序、错误与取消边界，再给出设计分析和待运行实验。不是仅列源码路径，也不是把伪代码当作原实现。
+本版不以变量解释为主线，而从真实问题、约束和简单替代方案出发：为什么需要当前结构，不这样做会怎样，付出了哪些代价，哪些前提改变后应选择另一种实现。每篇随后保留核心源码与逐段讲解，所有引用固定版本。
 
 ## 学习目录
 
-| 专题 | 学习顺序 | Codex CLI | OpenCode | DSH |
-|---|---|---|---|---|
-| 01 Agent Loop | P0 | [输入接纳与请求快照](codex/01-agent-loop.md) | [Execution / Runner / Step / Attempt](opencode/01-agent-loop.md) | [输入通道与失败收尾](dsh/01-agent-loop.md) |
-| 02 Context / Session | P0 | [压缩后的历史重建](codex/02-context-session.md) | [准备、提升与加载](opencode/02-context-session.md) | [事件提交与派生历史](dsh/02-context-session.md) |
-| 03 Tool / Sandbox | P0 | [许可、执行门与取消](codex/03-tools-sandbox.md) | [调用发布与 Fiber 结算](opencode/03-tools-sandbox.md) | [滚动池与顺序提交](dsh/03-tools-sandbox.md) |
-| 04 LLM / Streaming | P0 | [连接与增量续接](codex/04-llm-streaming.md) | [重试预算与插件覆盖](opencode/04-llm-streaming.md) | [绑定路由与尝试结算](dsh/04-llm-streaming.md) |
-| 05 Extension / Plugin | P1 | [类型化贡献与准入](codex/05-extension-architecture.md) | [代际、失败更新与卸载](opencode/05-extension-architecture.md) | [卸载收敛与迟到资源](dsh/05-extension-architecture.md) |
-| 06 Task / Multi-Agent | P1 | [身份、驻留与恢复归属](codex/06-task-orchestration.md) | [Prompt 与 Job 分离](opencode/06-task-orchestration.md) | [Goal、授权与检查点](dsh/06-task-orchestration.md) |
-| 07 Persistence / Reliability | P1 | [提交策略与恢复资格](codex/07-persistence-reliability.md) | [执行声明与停止意图](opencode/07-persistence-reliability.md) | [模型/工具前的 Flush](dsh/07-persistence-reliability.md) |
-| 08 Observability / Evaluation | P2 | [观测边界与并发测试](codex/08-observability-evaluation.md) | [事件扇出与慢订阅者](opencode/08-observability-evaluation.md) | [脱敏、交接与错误隔离](dsh/08-observability-evaluation.md) |
+| 专题 | Codex CLI | OpenCode | DSH |
+|---|---|---|---|
+| 01 Agent Loop | [输入接纳与请求快照](codex/01-agent-loop.md) | [运行协调与丢失唤醒](opencode/01-agent-loop.md) | [信息注入与工作授权](dsh/01-agent-loop.md) |
+| 02 Context / Session | [摘要与确定性重建](codex/02-context-session.md) | [准备前提与上下文失效](opencode/02-context-session.md) | [事件视图与缓存剩余成本](dsh/02-context-session.md) |
+| 03 Tool / Sandbox | [取消结算、并发与隔离](codex/03-tools-sandbox.md) | [工具捕获与结果表示](opencode/03-tools-sandbox.md) | [顺序提交与结果积压](dsh/03-tools-sandbox.md) |
+| 04 LLM / Streaming | [连接、续接与认证归属](codex/04-llm-streaming.md) | [已提交状态与重试预算](opencode/04-llm-streaming.md) | [尝试结算与在途丢失窗口](dsh/04-llm-streaming.md) |
+| 05 Extension / Plugin | [类型化贡献与准入](codex/05-extension-architecture.md) | [贡献重放与插件代际](opencode/05-extension-architecture.md) | [能力世界与迟到资源](dsh/05-extension-architecture.md) |
+| 06 Task / Multi-Agent | [身份、驻留和父归属](codex/06-task-orchestration.md) | [接纳、执行与交付](opencode/06-task-orchestration.md) | [目标、授权与版本围栏](dsh/06-task-orchestration.md) |
+| 07 Persistence / Reliability | [ACK、检查点与恢复资格](codex/07-persistence-reliability.md) | [write-ahead 意图与停止语义](opencode/07-persistence-reliability.md) | [Handle 所有权与副作用前 Flush](dsh/07-persistence-reliability.md) |
+| 08 Observability / Evaluation | [原始证据与离线解释](codex/08-observability-evaluation.md) | [独立故障域与事件交付](opencode/08-observability-evaluation.md) | [脱敏、交接游标与缺口](dsh/08-observability-evaluation.md) |
 
-P0/P1/P2 表示学习顺序，不是生产环境的重要性排名。建议先横向读三个项目的 01，再读 03/04/02，之后深入 07/05/06/08。
+**研究入口：** [48 项决策索引](DESIGN_INDEX.md) · [研究方法与证据等级](RESEARCH_METHOD.md) · [新增直接证据](RESEARCH_EVIDENCE.md) · [横向研究结论](RESEARCH_FINDINGS.md) · [机制实验与验证矩阵](RESEARCH_EXPERIMENTS.md) · [本轮修正记录](RESEARCH_CHANGELOG.md)
 
-**配套阅读：** [源码索引](SOURCES.md) · [横向比较](COMPARISON.md) · [实验路线](LABS.md) · [版本差异与证据边界](ERRATA.md) · [第三方许可](THIRD_PARTY_NOTICES.md)
+原源码索引与学习路线仍在 [SOURCES.md](SOURCES.md)、[LABS.md](LABS.md)，旧版架构比较与路径差异仍可查 [COMPARISON.md](COMPARISON.md)、[ERRATA.md](ERRATA.md)。设计层的新结论和边界以本轮研究记录为准，原始版本保留在 Git 历史中。
 
-## 每篇怎样阅读
+## 每篇的组织方式
 
-每篇包含 2–4 段带 `rust` 或 `ts` 语法高亮的原文代码。每段上方都有完整 Commit、文件和包含该节选的行号定位链接；HTML `source` 标记供机器核验。代码块保留原缩进和原注释，解释位于块外，不向源码内插入自编注释。
+先给一个不需要复杂架构的简单实现，再说明新增需求制造了什么矛盾；深入两项带编号的设计决策，比较候选方案与反事实；讨论代价、适用条件和反证；最后回到固定源码和实验。候选方案除明确引自作者记录外，均是研究比较，不冒充维护者实际讨论史。
 
-节选可能从完整函数中间开始，或在一个分支中间结束；它们用于阅读，不是可独立编译的程序。省略部分在块外说明，不用自编省略号替代原文。定位范围可能比节选稍宽；核验器会输出实际匹配的起止行。
+70 段源码从上一版完整保留，代码、缩进、定位范围与顺序由构建器检查。研究源稿位于 `research/decisions/`，它们用于生成 24 篇主笔记，不是额外 24 篇新的源码课程。修改设计论证后运行构建器，避免主笔记与源稿不同步。
 
-讲解重点是：这个状态由谁持有、为什么此处等待/提交、取消到达后怎么办、失败意味着什么。标为“分析”的内容是基于代码的推导，不冒充作者的设计原话。源码结构或接口声明也不自动证明某个后端的全部运行行为。
+## 固定基线
 
-## 固定研究基线
+| 项目 | 完整 Commit |
+|---|---|
+| openai/codex | `a9b0815167c27ab13719dd12d13b63e02b70d221` |
+| anomalyco/opencode | `60a212c0769acd96b446acbadeb790486830f91d` |
+| deepseek-ai/deepseek-harness | `d743267388641bc76f17c45ce8b4c231aed1d32c` |
 
-| 官方仓库 | 研究分支 | 完整 Commit |
+研究日期：2026-10-12；上一版笔记基线：`69577b8d1dc34b052090b43206faa9fcd2c597b2`。源码基线不滚动，避免把版本变化与设计解释混为一谈。它们是研究快照，不是推荐安装版本，也未验证发行版二进制等价。机器记录见 [source-lock.json](source-lock.json)。
+
+## 实际验证的四个层次
+
+| 层次 | 方法 | 不证明什么 |
 |---|---|---|
-| [openai/codex](https://github.com/openai/codex) | main | `a9b0815167c27ab13719dd12d13b63e02b70d221` |
-| [anomalyco/opencode](https://github.com/anomalyco/opencode) | dev | `60a212c0769acd96b446acbadeb790486830f91d` |
-| [deepseek-ai/deepseek-harness](https://github.com/deepseek-ai/deepseek-harness) | master | `d743267388641bc76f17c45ce8b4c231aed1d32c` |
+| 原文源码一致性 | `verify_notes.py` 联网逐行匹配 70 段、检查链接与 SHA | 不证明设计动机与全部运行行为 |
+| 设计版生成完整性 | `build_design_edition.py --check` 检查 24 篇、48 决策、原文保留与生成文本一致 | 不会自动判定论证正确 |
+| 自建机制实验 | 22 项确定性 Python 教学模型 | 不是三个上游 Agent 的测试或性能基准 |
+| 文档工具测试 | 原核验器 7 项＋构建器 4 项 | 不验证模型、数据库、OS 沙箱 |
 
-研究日期：2026-10-12。机器可读基线见 [source-lock.json](source-lock.json)。这些是研究快照，不是推荐安装版本；没有验证它们与某个发行版二进制完全一致。更新版本不能只替换链接中的 SHA，必须重新检查代码与解释。
-
-## 源码核验
-
-仓库附带仅使用 Python 标准库的检查器。它检查 24 篇是否齐全、每篇是否至少有两段源码、本地导航是否存在、源码是否使用锁定 SHA，以及代码块是否逐行原样出现在对应官方文件定位范围内。只读取源码，不执行上游代码，不使用凭证。
+实际结果以 [validation](validation/README.md) 内机器报告和 [GitHub Actions](https://github.com/solstice621/Agent-Learning-Notes/actions) 为准。主笔记里的上游实验仍是 **NOT RUN**。本轮没有编译上游 Agent、发起真实模型请求、测量端到端性能、执行沙箱攻击测试或验证多节点接管。
 
 ```bash
+# 需要包含上一版基线的本仓库 Git 历史；浅克隆需先获取该历史。
+python3 scripts/build_design_edition.py
+python3 scripts/build_design_edition.py --check
 python3 -m unittest discover -s tests -v
-python3 scripts/verify_notes.py --report /tmp/agent-notes-validation.json
+python3 scripts/run_mechanism_models.py --report /tmp/mechanism-models.json
+python3 scripts/verify_notes.py --report /tmp/source-excerpts.json
 ```
 
-离线仅检查目录、链接和引用结构：
+在线匹配失败必须报告失败；`--structure-only` 只检查结构，不能称为源码验证通过。CI 的长期校验工作流仅有读取权限。
 
-```bash
-python3 scripts/verify_notes.py --structure-only
-```
+## 面向 Agent Infrastructure 的学习目标
 
-`STRUCTURE_ONLY` 不表示源码一致性已验证。联网检查失败、找不到源码、节选改写或定位越界都会失败，不把无法访问误记为通过。GitHub Actions 使用同一脚本，状态见仓库 Actions；单元测试通过不等于整套笔记已经通过在线比对。
+读完以后应能脱离函数名，解释要解决的故障窗口、状态归属、可重做范围、授权、资源预算和交付保证；还应能判断什么时候不需要复制这些复杂设计。推荐先横向读 01/03/04，再读 02/07，最后研究 05/06/08。
 
-## 实际验证范围
-
-本套完成静态源码分析与导读。**没有编译或运行三个上游 Agent，没有执行上游单元/集成测试、真实模型请求、性能评测或 OS 沙箱安全测试。** 各篇实验均待运行。
-
-源码逐字一致性检查只证明节选和来源匹配，不证明讲解覆盖全部分支或运行时正确性。涉及数据库原子性、provider 取消、沙箱 enforcement、分布式接管等结论，仍需继续阅读实现与做实验。
-
-本仓库不存私人会话、客户代码、凭证或原始运行 trace。实验使用合成输入和临时工作区；公开证据先脱敏。引用源码按原许可保留归属，本项目不是三个上游项目的官方文档。
+源码按原许可保留归属，见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。本项目不是上游官方文档，不保存私人会话、客户代码、凭证或原始执行轨迹。

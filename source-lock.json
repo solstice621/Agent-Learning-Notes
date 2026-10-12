@@ -1,10 +1,13 @@
 {
-  "schema_version": 2,
-  "edition": "source-excerpts-with-explanations",
+  "schema_version": 3,
+  "edition": "design-rationale-with-preserved-source-excerpts",
   "research_date": "2026-10-12",
   "language": "zh-CN",
   "topic_notes": 24,
+  "design_decisions": 48,
+  "preserved_source_excerpts": 70,
   "minimum_excerpts_per_note": 2,
+  "previous_notes_commit": "69577b8d1dc34b052090b43206faa9fcd2c597b2",
   "repositories": [
     {"repository": "openai/codex", "commit": "a9b0815167c27ab13719dd12d13b63e02b70d221", "observed_branch": "main", "notes_directory": "codex", "license": "Apache-2.0"},
     {"repository": "anomalyco/opencode", "commit": "60a212c0769acd96b446acbadeb790486830f91d", "observed_branch": "dev", "notes_directory": "opencode", "license": "MIT"},
@@ -21,13 +24,15 @@
     {"id": "08", "slug": "observability-evaluation", "priority": "P2"}
   ],
   "validation": {
-    "source_excerpt_method": "Exact line matching within pinned public GitHub source locator ranges",
+    "source_excerpt_method": "Exact line matching within pinned official GitHub files; preserve prior edition excerpt signatures",
+    "design_structure": "24 generated main notes, 48 indexed decisions; structural equality does not prove reasoning correctness",
+    "mechanism_models": "22 independently authored deterministic teaching tests; see actual validation report",
     "upstream_agent_builds_run": false,
     "upstream_agent_tests_run": false,
     "real_model_calls_run": false,
     "benchmarks_run": false,
     "sandbox_security_tests_run": false,
-    "proposed_experiments": "NOT RUN",
-    "note": "Documentation validation is distinct from upstream runtime validation. Consult the current Actions run or verifier report for source equality status."
+    "distributed_takeover_tests_run": false,
+    "proposed_upstream_experiments": "NOT RUN"
   }
 }

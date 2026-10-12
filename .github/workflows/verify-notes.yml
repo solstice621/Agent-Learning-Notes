@@ -1,4 +1,4 @@
-name: Verify source excerpts
+name: Verify research and source excerpts
 
 on:
   push:
@@ -12,17 +12,22 @@ permissions:
 jobs:
   verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 8
     steps:
-      - name: Check out notes
+      - name: Check out notes and pinned previous edition
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
-      - name: Test the documentation verifier
+          fetch-depth: 0
+      - name: Test documentation tools and independent mechanism models
         run: python3 -m unittest discover -s tests -v
+      - name: Check generated design edition without modifying files
+        run: python3 scripts/build_design_edition.py --check --report /tmp/design-structure.json
       - name: Verify navigation, pinned commits, and verbatim excerpts
         run: python3 scripts/verify_notes.py --report /tmp/agent-notes-validation.json
-      - name: Show validation summary
+      - name: Report mechanism models separately from upstream tests
+        run: python3 scripts/run_mechanism_models.py --report /tmp/mechanism-models.json
+      - name: Show source summary
         if: always()
         run: |
           if [ -f /tmp/agent-notes-validation.json ]; then

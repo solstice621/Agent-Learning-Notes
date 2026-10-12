@@ -1,0 +1,39 @@
+name: Materialize design research edition
+
+on:
+  push:
+    branches: [research/design-rationale-20261012]
+
+permissions:
+  contents: write
+
+jobs:
+  materialize:
+    if: github.repository == 'solstice621/Agent-Learning-Notes'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Check out staging branch only
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: research/design-rationale-20261012
+          fetch-depth: 0
+          persist-credentials: true
+      - name: Compose research with original source blocks
+        run: python3 scripts/build_design_edition.py
+      - name: Test documentation tools and independent models
+        run: python3 -m unittest discover -s tests -v
+      - name: Verify generated notes and original sources
+        run: |
+          python3 scripts/build_design_edition.py --check --report validation/design-structure.json
+          python3 scripts/verify_notes.py --report validation/source-excerpts.json
+          python3 scripts/run_mechanism_models.py --report validation/mechanism-models.json
+      - name: Commit only generated research to staging, removing this one-time writer
+        run: |
+          git rm .github/workflows/materialize-design-edition.yml
+          git add codex opencode dsh DESIGN_INDEX.md validation
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'docs: publish 24 design-first studies preserving 70 source excerpts'
+          git push origin HEAD:refs/heads/research/design-rationale-20261012
+          git rev-parse HEAD
