@@ -1,0 +1,30 @@
+name: Verify source excerpts
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out notes
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Test the documentation verifier
+        run: python3 -m unittest discover -s tests -v
+      - name: Verify navigation, pinned commits, and verbatim excerpts
+        run: python3 scripts/verify_notes.py --report /tmp/agent-notes-validation.json
+      - name: Show validation summary
+        if: always()
+        run: |
+          if [ -f /tmp/agent-notes-validation.json ]; then
+            python3 -c 'import json; p=json.load(open("/tmp/agent-notes-validation.json")); print(json.dumps({k:v for k,v in p.items() if k != "matches"}, ensure_ascii=False, indent=2))'
+          fi

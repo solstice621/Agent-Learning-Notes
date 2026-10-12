@@ -1,0 +1,33 @@
+{
+  "schema_version": 2,
+  "edition": "source-excerpts-with-explanations",
+  "research_date": "2026-10-12",
+  "language": "zh-CN",
+  "topic_notes": 24,
+  "minimum_excerpts_per_note": 2,
+  "repositories": [
+    {"repository": "openai/codex", "commit": "a9b0815167c27ab13719dd12d13b63e02b70d221", "observed_branch": "main", "notes_directory": "codex", "license": "Apache-2.0"},
+    {"repository": "anomalyco/opencode", "commit": "60a212c0769acd96b446acbadeb790486830f91d", "observed_branch": "dev", "notes_directory": "opencode", "license": "MIT"},
+    {"repository": "deepseek-ai/deepseek-harness", "commit": "d743267388641bc76f17c45ce8b4c231aed1d32c", "observed_branch": "master", "notes_directory": "dsh", "license": "MIT"}
+  ],
+  "topics": [
+    {"id": "01", "slug": "agent-loop", "priority": "P0"},
+    {"id": "02", "slug": "context-session", "priority": "P0"},
+    {"id": "03", "slug": "tools-sandbox", "priority": "P0"},
+    {"id": "04", "slug": "llm-streaming", "priority": "P0"},
+    {"id": "05", "slug": "extension-architecture", "priority": "P1"},
+    {"id": "06", "slug": "task-orchestration", "priority": "P1"},
+    {"id": "07", "slug": "persistence-reliability", "priority": "P1"},
+    {"id": "08", "slug": "observability-evaluation", "priority": "P2"}
+  ],
+  "validation": {
+    "source_excerpt_method": "Exact line matching within pinned public GitHub source locator ranges",
+    "upstream_agent_builds_run": false,
+    "upstream_agent_tests_run": false,
+    "real_model_calls_run": false,
+    "benchmarks_run": false,
+    "sandbox_security_tests_run": false,
+    "proposed_experiments": "NOT RUN",
+    "note": "Documentation validation is distinct from upstream runtime validation. Consult the current Actions run or verifier report for source equality status."
+  }
+}
